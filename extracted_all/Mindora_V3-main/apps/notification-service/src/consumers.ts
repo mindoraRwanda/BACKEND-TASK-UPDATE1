@@ -13,9 +13,9 @@ import type {
   AppointmentCancelledEvent,
 } from '@mindora/events';
 import { sendPushNotification } from './fcm.js';
-import { getUserName, sendEmailToUser } from './email.js';
+import { getUserName, sendEmail, sendEmailToUser } from './email.js';
 import { sendSms } from './sms.js';
-import { logNotification } from './notificationLogger.js';
+import { logNotification, prisma } from './notificationLogger.js';
 import {
   getUserPreferences,
   isChannelEnabled,
@@ -268,24 +268,202 @@ async function handleCommunity(payload: unknown): Promise<void> {
   );
 }
 
+type CrisisChannel = 'email' | 'sms';
+
+async function deliverAdminCrisisAlert(
+  eventId: string,
+  crisisLevel: number,
+  channel: CrisisChannel,
+  recipient: string | undefined
+): Promise<void> {
+  const delivery = await prisma.crisis_deliveries.upsert({
+    where: {
+      eventId_channel: { eventId, channel },
+    },
+    create: {
+      eventId,
+      channel,
+      recipient: recipient ?? 'NOT_CONFIGURED',
+      status: 'pending',
+    },
+    update: {},
+  });
+
+  if (
+    delivery.status === 'delivered' ||
+    delivery.status === 'skipped'
+  ) {
+    return;
+  }
+
+  const claimed = await prisma.crisis_deliveries.updateMany({
+    where: {
+      id: delivery.id,
+      OR: [
+        { status: 'pending' },
+        { status: 'failed' },
+        {
+          status: 'processing',
+          updatedAt: {
+            lt: new Date(Date.now() - 5 * 60 * 1000),
+          },
+        },
+      ],
+    },
+    data: {
+      status: 'processing',
+      attempts: { increment: 1 },
+      failureReason: null,
+      recipient: recipient ?? 'NOT_CONFIGURED',
+    },
+  });
+
+  if (claimed.count === 0) return;
+
+  try {
+    if (!recipient) {
+      await prisma.crisis_deliveries.update({
+        where: { id: delivery.id },
+        data: {
+          status: 'skipped',
+          failureReason: `ADMIN_CRISIS_${channel.toUpperCase()} not configured`,
+        },
+      });
+      return;
+    }
+
+    if (channel === 'email') {
+      const sent = await sendEmail(
+        recipient,
+        'Mindora: Crisis alert requires attention',
+        `<h2>Crisis alert</h2>
+         <p>A patient interaction has triggered a crisis alert.</p>
+         <p>Severity level: ${crisisLevel}</p>
+         <p>Please follow the approved crisis-response procedure.</p>`
+      );
+
+      if (!sent) {
+        await prisma.crisis_deliveries.update({
+          where: { id: delivery.id },
+          data: {
+            status: 'skipped',
+            failureReason: 'Resend client not initialized',
+          },
+        });
+        return;
+      }
+    } else {
+      if (
+        process.env.SMS_ENABLED !== 'true' ||
+        !process.env.AT_API_KEY ||
+        !process.env.AT_USERNAME
+      ) {
+        await prisma.crisis_deliveries.update({
+          where: { id: delivery.id },
+          data: {
+            status: 'skipped',
+            failureReason:
+              'SMS disabled or Africa Talking credentials missing',
+          },
+        });
+        return;
+      }
+
+      const result = await sendSms(
+        'ADMIN_CRISIS_ALERT',
+        `MINDORA CRISIS ALERT: A patient interaction triggered severity level ${crisisLevel}. Please follow the crisis-response procedure.`,
+        recipient,
+        'ai.crisis.admin'
+      );
+
+      if (result === 'skipped') {
+        await prisma.crisis_deliveries.update({
+          where: { id: delivery.id },
+          data: {
+            status: 'skipped',
+            failureReason: 'SMS service skipped delivery',
+          },
+        });
+        return;
+      }
+    }
+
+    await prisma.crisis_deliveries.update({
+      where: { id: delivery.id },
+      data: {
+        status: 'delivered',
+        deliveredAt: new Date(),
+      },
+    });
+
+    console.log(
+      `[crisis-alert] ${channel} accepted for delivery (event=${eventId})`
+    );
+  } catch (error) {
+    const reason =
+      error instanceof Error ? error.message : String(error);
+
+    await prisma.crisis_deliveries.update({
+      where: { id: delivery.id },
+      data: {
+        status: 'failed',
+        failureReason: reason,
+      },
+    });
+
+    console.error(
+      `[crisis-alert] ${channel} failed (event=${eventId}):`,
+      reason
+    );
+
+    throw error;
+  }
+}
+
 async function handleAi(payload: unknown): Promise<void> {
   console.log(`[${EXCHANGES.AI}] received:`, JSON.stringify(payload));
 
   const parsed = aiCrisisEventSchema.safeParse(payload);
+
   if (!parsed.success) {
     throw new InvalidEventPayloadError(
       `Invalid AI event: ${parsed.error.message}`,
       EXCHANGES.AI
     );
   }
+
   const crisis = parsed.data;
-  const prefs = await getUserPreferences(crisis.userId);
-  await sendSmsIfEnabled(
-    crisis.userId,
-    `Mindora crisis alert: your recent session flagged a concern (level ${crisis.crisisLevel}). A counsellor will reach out shortly.`,
-    'ai.crisis',
-    prefs
+
+  const results = await Promise.allSettled([
+    deliverAdminCrisisAlert(
+      crisis.eventId,
+      crisis.crisisLevel,
+      'email',
+      process.env.ADMIN_CRISIS_EMAIL
+    ),
+    deliverAdminCrisisAlert(
+      crisis.eventId,
+      crisis.crisisLevel,
+      'sms',
+      process.env.ADMIN_CRISIS_PHONE
+    ),
+  ]);
+
+  const failures = results.filter(
+    (result) => result.status === 'rejected'
   );
+
+  console.log('[crisis-alert] delivery results:', {
+    eventId: crisis.eventId,
+    email: results[0].status,
+    sms: results[1].status,
+  });
+
+  if (failures.length > 0) {
+    throw new Error(
+      `${failures.length} crisis notification channel(s) failed`
+    );
+  }
 }
 
 async function handleMood(payload: unknown): Promise<void> {

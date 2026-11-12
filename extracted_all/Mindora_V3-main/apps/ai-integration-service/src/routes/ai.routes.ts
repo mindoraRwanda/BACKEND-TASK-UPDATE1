@@ -64,32 +64,28 @@ router.post(
     const crisisLevel = await runPreFilter(message, userId);
 
     // Level 5 — immediate escalation; AI is never called under any circumstances
-    if (crisisLevel === 5) {
-      // INTENTIONAL fire-and-forget: do NOT await publishCrisisEvent.
-      // The safety response must reach the user even if RabbitMQ is down, restarting,
-      // or unreachable. Awaiting here would mean a broker outage causes the user to
-      // receive a 500 error instead of the crisis helpline message — the worst possible
-      // failure mode for this code path. The .catch ensures the error is logged without
-      // propagating to the response flow.
-      publishCrisisEvent(
-        userId ?? 'unknown',
-        crisisLevel,
-        resolvedSessionId
-      ).catch((err) => {
-        console.error(
-          '[pre-filter] Failed to publish crisis event to RabbitMQ:',
-          err
-        );
-      });
+   if (crisisLevel === 5) {
+  // INTENTIONAL fire-and-forget: never delay the patient's safety response.
+  publishCrisisEvent(
+    userId ?? 'unknown',
+    crisisLevel,
+    resolvedSessionId
+  ).catch((err) => {
+    console.error(
+      '[pre-filter] Failed to publish crisis event to RabbitMQ:',
+      err
+    );
+  });
 
-      res.status(200).json({
-        response:
-          "I'm concerned about your safety right now. Please reach out to a crisis helpline immediately. In Rwanda: Umutima Counselling Centre +250 788 386 225. International: Crisis Text Line — text HOME to 741741. You are not alone.",
-        crisisLevel: 5,
-        sessionId: null,
-      });
-      return;
-    }
+  res.status(200).json({
+    response:
+      "I'm concerned about your safety right now. If you are in immediate danger, call Rwanda's emergency number 112 or go to the nearest hospital. You can also contact Umutima Counselling Centre at +250 788 386 225. Please reach out to someone you trust and try not to stay alone. You are not alone.",
+    crisisLevel: 5,
+    sessionId: resolvedSessionId,
+  });
+
+  return;
+}
 
     // TODO[clinical-review]: Levels 3 and 4 currently set inputFlagged and continue
     // to the AI call. A formal escalation path for these levels — specifically whether
