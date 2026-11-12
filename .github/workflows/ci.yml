@@ -13,6 +13,13 @@ on:
 permissions:
   contents: read
 
+# The application monorepo is embedded below the actual Git repository root.
+# Keep workflow discovery at the repository root, but run project commands
+# from the npm/Turborepo root.
+defaults:
+  run:
+    working-directory: extracted_all/Mindora_V3-main
+
 # Cancel in-flight runs on the same branch when a new commit is pushed.
 # Never cancel runs on main so a merge is never abandoned mid-flight.
 concurrency:
@@ -42,12 +49,13 @@ jobs:
         with:
           filters: |
             config:
-              - 'package.json'
-              - 'package-lock.json'
-              - 'turbo.json'
-              - 'tsconfig*.json'
-              - '.nvmrc'
-              - '.node-version'
+              - '.github/workflows/ci.yml'
+              - 'extracted_all/Mindora_V3-main/package.json'
+              - 'extracted_all/Mindora_V3-main/package-lock.json'
+              - 'extracted_all/Mindora_V3-main/turbo.json'
+              - 'extracted_all/Mindora_V3-main/tsconfig*.json'
+              - 'extracted_all/Mindora_V3-main/.nvmrc'
+              - 'extracted_all/Mindora_V3-main/.node-version'
 
       - name: Set Turbo filter
         id: set-filter
@@ -143,8 +151,12 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version-file: .nvmrc
+          node-version-file: extracted_all/Mindora_V3-main/.nvmrc
           cache: npm
+          cache-dependency-path: extracted_all/Mindora_V3-main/package-lock.json
+
+      - name: Use declared npm version
+        run: npm install --global npm@10.9.2
 
       - name: Install dependencies
         run: npm ci
@@ -200,11 +212,15 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version-file: .nvmrc
+          node-version-file: extracted_all/Mindora_V3-main/.nvmrc
           cache: npm
+          cache-dependency-path: extracted_all/Mindora_V3-main/package-lock.json
+
+      - name: Use declared npm version
+        run: npm install --global npm@10.9.2
 
       - name: Start infrastructure (Postgres, Redis, MongoDB, RabbitMQ, Kong)
-        run: docker compose up -d --wait
+        run: docker compose up -d --wait postgres mongodb redis rabbitmq kong
 
       - name: Install dependencies
         run: npm ci
@@ -241,8 +257,8 @@ jobs:
         with:
           name: test-results
           path: |
-            **/coverage/
-            **/test-results/
+            extracted_all/Mindora_V3-main/**/coverage/
+            extracted_all/Mindora_V3-main/**/test-results/
           if-no-files-found: ignore
           retention-days: 7
 
@@ -269,18 +285,22 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version-file: .nvmrc
+          node-version-file: extracted_all/Mindora_V3-main/.nvmrc
           cache: npm
+          cache-dependency-path: extracted_all/Mindora_V3-main/package-lock.json
+
+      - name: Use declared npm version
+        run: npm install --global npm@10.9.2
 
       - name: Restore Turborepo cache
         uses: actions/cache@v4
         with:
-          path: .turbo
+          path: extracted_all/Mindora_V3-main/.turbo
           # Include workspace package.json files so per-service dep changes
           # invalidate the cache correctly.
-          key: turbo-${{ runner.os }}-${{ hashFiles('turbo.json', 'package-lock.json', 'apps/*/package.json', 'packages/*/package.json') }}-${{ github.sha }}
+          key: turbo-${{ runner.os }}-${{ hashFiles('extracted_all/Mindora_V3-main/turbo.json', 'extracted_all/Mindora_V3-main/package-lock.json', 'extracted_all/Mindora_V3-main/apps/*/package.json', 'extracted_all/Mindora_V3-main/packages/*/package.json') }}-${{ github.sha }}
           restore-keys: |
-            turbo-${{ runner.os }}-${{ hashFiles('turbo.json', 'package-lock.json') }}-
+            turbo-${{ runner.os }}-${{ hashFiles('extracted_all/Mindora_V3-main/turbo.json', 'extracted_all/Mindora_V3-main/package-lock.json') }}-
             turbo-${{ runner.os }}-
 
       - name: Install dependencies
@@ -302,7 +322,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dist
-          path: apps/*/dist/
+          path: extracted_all/Mindora_V3-main/apps/*/dist/
           if-no-files-found: ignore
           retention-days: 3
 
@@ -334,8 +354,12 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version-file: .nvmrc
+          node-version-file: extracted_all/Mindora_V3-main/.nvmrc
           cache: npm
+          cache-dependency-path: extracted_all/Mindora_V3-main/package-lock.json
+
+      - name: Use declared npm version
+        run: npm install --global npm@10.9.2
 
       - name: Install dependencies
         run: npm ci
