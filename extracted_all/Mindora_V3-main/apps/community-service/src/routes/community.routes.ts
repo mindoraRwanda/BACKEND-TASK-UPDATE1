@@ -127,7 +127,7 @@ router.post(
     if (!result.success) {
       return res.status(400).json({
         error: 'Validation failed',
-        details: result.error.errors,
+        details: result.error.issues,
       });
     }
 
@@ -304,7 +304,7 @@ router.post(
     if (!result.success) {
       return res.status(400).json({
         error: 'Validation failed',
-        details: result.error.errors,
+        details: result.error.issues,
       });
     }
 
@@ -413,7 +413,7 @@ router.post(
     if (!result.success) {
       return res
         .status(400)
-        .json({ error: 'Validation failed', details: result.error.errors });
+        .json({ error: 'Validation failed', details: result.error.issues });
     }
 
     const { content, isAnonymous } = result.data;
