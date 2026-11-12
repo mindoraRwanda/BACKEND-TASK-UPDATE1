@@ -7,6 +7,7 @@ import { Prisma } from '../generated/prisma/index.js';
 import type { BookAppointmentDto } from '@mindora/validation';
 import { publishAppointmentEvent } from './publish-appointment-event.js';
 import { config } from '../config.js';
+import { fitsWorkingHours } from './availability.js';
 
 function overlaps(
   slotStart: Date,
@@ -24,6 +25,20 @@ export class SlotConflictError extends Error {
   }
 }
 
+export class PastAppointmentError extends Error {
+  constructor() {
+    super('Appointment must be in the future');
+    this.name = 'PastAppointmentError';
+  }
+}
+
+export class SlotUnavailableError extends Error {
+  constructor() {
+    super('Slot is outside therapist availability');
+    this.name = 'SlotUnavailableError';
+  }
+}
+
 export async function bookAppointmentWithLock(
   patientId: string,
   input: BookAppointmentDto
@@ -36,6 +51,31 @@ export async function bookAppointmentWithLock(
     // lock keyed by therapistId gives the same mutex without needing a local
     // row to lock — it's released automatically at commit/rollback.
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${input.therapistId}))`;
+
+    if (input.slotStart <= new Date()) {
+      throw new PastAppointmentError();
+    }
+
+    const schedule = await tx.therapistSchedule.findUnique({
+      where: { therapistId: input.therapistId },
+      include: {
+        workingHours: true,
+        timeOff: {
+          where: {
+            startsAt: { lt: input.slotEnd },
+            endsAt: { gt: input.slotStart },
+          },
+        },
+      },
+    });
+
+    if (
+      !schedule ||
+      !fitsWorkingHours(input.slotStart, input.slotEnd, schedule.workingHours) ||
+      schedule.timeOff.length > 0
+    ) {
+      throw new SlotUnavailableError();
+    }
 
     const conflicts = await tx.$queryRaw<Array<{ id: string }>>`
       SELECT id
