@@ -22,12 +22,13 @@ import { Router } from 'express';
 import {
   defaultAvailabilityRange,
   filterAvailableSlots,
-  generateCandidateSlots,
-  generateCandidateSlotsFromWorkingHours,
+  generateConfiguredSlots,
 } from '../lib/availability.js';
 import {
+  PastAppointmentError,
   bookAppointmentWithLock,
   isSlotConflictError,
+  SlotUnavailableError,
 } from '../lib/book-appointment.js';
 import { publishAppointmentEvent } from '../lib/publish-appointment-event.js';
 import { serializeAppointment } from '../lib/serialize-appointment.js';
@@ -119,17 +120,12 @@ appointmentRouter.get(
       }),
     ]);
 
-    // A therapist with no configured schedule (or an empty working-hours
-    // list) falls back to the original fixed 9am-5pm-UTC default, so
-    // approval doesn't leave them unbookable until they set this up.
-    const candidates =
-      schedule && schedule.workingHours.length > 0
-        ? generateCandidateSlotsFromWorkingHours(
-            from,
-            to,
-            schedule.workingHours
-          )
-        : generateCandidateSlots(from, to);
+    // Therapists must configure working hours before they become bookable.
+    const candidates = generateConfiguredSlots(
+      from,
+      to,
+      schedule?.workingHours
+    );
 
     const blocked = [
       ...bookedAppointments,
@@ -189,6 +185,14 @@ appointmentRouter.post(
     } catch (error) {
       if (isSlotConflictError(error)) {
         res.status(409).json({ message: 'Slot already booked' });
+        return;
+      }
+      if (error instanceof PastAppointmentError) {
+        res.status(400).json({ message: error.message });
+        return;
+      }
+      if (error instanceof SlotUnavailableError) {
+        res.status(409).json({ message: error.message });
         return;
       }
       throw error;

@@ -74,20 +74,69 @@ export interface WorkingHoursWindow {
   endMinute: number;
 }
 
+function toKigaliDate(date: Date): Date {
+  return new Date(date.getTime() + KIGALI_OFFSET_MINUTES * 60 * 1000);
+}
+
 function toKigaliParts(date: Date): { dayOfWeek: number; minuteOfDay: number } {
-  const shifted = new Date(date.getTime() + KIGALI_OFFSET_MINUTES * 60 * 1000);
+  const shifted = toKigaliDate(date);
   return {
     dayOfWeek: shifted.getUTCDay(),
     minuteOfDay: shifted.getUTCHours() * 60 + shifted.getUTCMinutes(),
   };
 }
 
+/** True only when the whole appointment fits within one Kigali-local window. */
+export function fitsWorkingHours(
+  slotStart: Date,
+  slotEnd: Date,
+  workingHours: WorkingHoursWindow[]
+): boolean {
+  if (slotEnd <= slotStart) return false;
+
+  const startLocal = toKigaliDate(slotStart);
+  const endLocal = toKigaliDate(slotEnd);
+  if (
+    startLocal.toISOString().slice(0, 10) !==
+    endLocal.toISOString().slice(0, 10)
+  ) {
+    return false;
+  }
+
+  const dayOfWeek = startLocal.getUTCDay();
+  const startMinute =
+    startLocal.getUTCHours() * 60 +
+    startLocal.getUTCMinutes() +
+    startLocal.getUTCSeconds() / 60 +
+    startLocal.getUTCMilliseconds() / 60_000;
+  const endMinute =
+    endLocal.getUTCHours() * 60 +
+    endLocal.getUTCMinutes() +
+    endLocal.getUTCSeconds() / 60 +
+    endLocal.getUTCMilliseconds() / 60_000;
+
+  return workingHours.some(
+    (window) =>
+      window.dayOfWeek === dayOfWeek &&
+      startMinute >= window.startMinute &&
+      endMinute <= window.endMinute
+  );
+}
+
+/** No schedule means no bookable slots; therapists must explicitly opt in. */
+export function generateConfiguredSlots(
+  from: Date,
+  to: Date,
+  workingHours: WorkingHoursWindow[] | null | undefined
+): TimeSlot[] {
+  if (!workingHours?.length) return [];
+  return generateCandidateSlotsFromWorkingHours(from, to, workingHours);
+}
+
 // Same hourly-slot cadence as generateCandidateSlots above, but windowed by
 // the therapist's own configured working hours instead of a fixed 9-5.
-// Used when a TherapistSchedule with at least one working-hours row exists;
-// callers fall back to generateCandidateSlots otherwise (see
-// appointment.routes.ts) so an approved therapist who hasn't configured
-// availability yet isn't simply unbookable.
+// Used when a TherapistSchedule with at least one working-hours row exists.
+// Therapists without configured hours receive no candidate slots.
 export function generateCandidateSlotsFromWorkingHours(
   from: Date,
   to: Date,

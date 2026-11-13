@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { generateCandidateSlotsFromWorkingHours } from './availability.js';
+import {
+  fitsWorkingHours,
+  generateCandidateSlotsFromWorkingHours,
+  generateConfiguredSlots,
+} from './availability.js';
 
 describe('generateCandidateSlotsFromWorkingHours', () => {
   // Africa/Kigali is UTC+2, so 09:00-17:00 Kigali local is 07:00-15:00 UTC.
@@ -77,5 +81,44 @@ describe('generateCandidateSlotsFromWorkingHours', () => {
     // at or after 08:30 and end by 09:30 — none does, since hourly slots
     // start on the hour.
     expect(slots).toHaveLength(0);
+  });
+});
+
+describe('configured availability and Kigali-local booking windows', () => {
+  it('returns no slots when working hours are missing or empty', () => {
+    const from = new Date('2026-06-08T00:00:00.000Z');
+    const to = new Date('2026-06-09T00:00:00.000Z');
+
+    expect(generateConfiguredSlots(from, to, undefined)).toEqual([]);
+    expect(generateConfiguredSlots(from, to, [])).toEqual([]);
+  });
+
+  it('accepts an appointment wholly inside a Kigali-local window', () => {
+    // 2026-06-08 08:00–09:00 UTC is Monday 10:00–11:00 in Kigali.
+    const mondayNineToFive = [
+      { dayOfWeek: 1, startMinute: 540, endMinute: 1020 },
+    ];
+    expect(
+      fitsWorkingHours(
+        new Date('2026-06-08T08:00:00.000Z'),
+        new Date('2026-06-08T09:00:00.000Z'),
+        mondayNineToFive
+      )
+    ).toBe(true);
+  });
+
+  it('rejects an appointment crossing midnight in Kigali local time', () => {
+    // 2026-06-08 21:30 UTC is Tuesday 23:30 in Kigali; 22:30 UTC is
+    // Wednesday 00:30. A single-day working-hours window cannot contain it.
+    expect(
+      fitsWorkingHours(
+        new Date('2026-06-08T21:30:00.000Z'),
+        new Date('2026-06-08T22:30:00.000Z'),
+        [
+          { dayOfWeek: 2, startMinute: 1380, endMinute: 1439 },
+          { dayOfWeek: 3, startMinute: 0, endMinute: 60 },
+        ]
+      )
+    ).toBe(false);
   });
 });

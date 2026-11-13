@@ -175,8 +175,8 @@ function serviceToken() {
 }
 
 function sampleAppointment(overrides: Record<string, unknown> = {}) {
-  const slotStart = new Date('2026-06-10T10:00:00.000Z');
-  const slotEnd = new Date('2026-06-10T11:00:00.000Z');
+  const slotStart = new Date('2027-01-06T10:00:00.000Z');
+  const slotEnd = new Date('2027-01-06T11:00:00.000Z');
   return {
     id: appointmentId,
     patientId,
@@ -187,8 +187,8 @@ function sampleAppointment(overrides: Record<string, unknown> = {}) {
     status: 'PENDING',
     cancellationReason: null,
     rating: null,
-    createdAt: new Date('2026-06-01T00:00:00.000Z'),
-    updatedAt: new Date('2026-06-01T00:00:00.000Z'),
+    createdAt: new Date('2026-12-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-12-01T00:00:00.000Z'),
     ...overrides,
   };
 }
@@ -214,6 +214,14 @@ describe('POST /', () => {
       const tx = {
         $executeRaw: vi.fn().mockResolvedValue(undefined),
         $queryRaw: vi.fn().mockResolvedValue([]),
+        therapistSchedule: {
+          findUnique: vi.fn().mockResolvedValue({
+            workingHours: [
+              { dayOfWeek: 3, startMinute: 540, endMinute: 1020 },
+            ],
+            timeOff: [],
+          }),
+        },
         appointment: {
           create: vi.fn().mockResolvedValue(created),
         },
@@ -227,8 +235,8 @@ describe('POST /', () => {
       .set('Authorization', `Bearer ${patientToken()}`)
       .send({
         therapistId,
-        slotStart: '2026-06-10T10:00:00.000Z',
-        slotEnd: '2026-06-10T11:00:00.000Z',
+        slotStart: '2027-01-06T10:00:00.000Z',
+        slotEnd: '2027-01-06T11:00:00.000Z',
         sessionType: 'VIDEO',
       });
 
@@ -243,6 +251,14 @@ describe('POST /', () => {
       const tx = {
         $executeRaw: vi.fn().mockResolvedValue(undefined),
         $queryRaw: vi.fn().mockResolvedValue([{ id: 'existing' }]),
+        therapistSchedule: {
+          findUnique: vi.fn().mockResolvedValue({
+            workingHours: [
+              { dayOfWeek: 3, startMinute: 540, endMinute: 1020 },
+            ],
+            timeOff: [],
+          }),
+        },
         appointment: {
           create: vi.fn(),
         },
@@ -256,8 +272,8 @@ describe('POST /', () => {
       .set('Authorization', `Bearer ${patientToken()}`)
       .send({
         therapistId,
-        slotStart: '2026-06-10T10:00:00.000Z',
-        slotEnd: '2026-06-10T11:00:00.000Z',
+        slotStart: '2027-01-06T10:00:00.000Z',
+        slotEnd: '2027-01-06T11:00:00.000Z',
         sessionType: 'VIDEO',
       });
 
