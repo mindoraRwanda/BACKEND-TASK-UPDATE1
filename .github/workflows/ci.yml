@@ -1,3 +1,291 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  # Allow manual re-runs from the GitHub UI without needing a code push
+  workflow_dispatch:
+
+# Minimal default — each job grants only what it actually needs.
+permissions:
+  contents: read
+
+# The application monorepo is embedded below the actual Git repository root.
+# Keep workflow discovery at the repository root, but run project commands
+# from the npm/Turborepo root.
+defaults:
+  run:
+    working-directory: extracted_all/Mindora_V3-main
+
+# Cancel in-flight runs on the same branch when a new commit is pushed.
+# Never cancel runs on main so a merge is never abandoned mid-flight.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  # ─── 0. Change detection ─────────────────────────────────────────────────
+  # Produces a Turbo --filter so only affected services run in downstream jobs.
+  # • Global config change (turbo.json, lockfile, tsconfig) → run everything.
+  # • PR                                                     → affected packages vs base branch.
+  # • Push to main                                           → packages changed in last commit.
+  detect-changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      turbo-filter: ${{ steps.set-filter.outputs.filter }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for global config changes
+        id: global
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            config:
+              - '.github/workflows/ci.yml'
+              - 'extracted_all/Mindora_V3-main/package.json'
+              - 'extracted_all/Mindora_V3-main/package-lock.json'
+              - 'extracted_all/Mindora_V3-main/turbo.json'
+              - 'extracted_all/Mindora_V3-main/tsconfig*.json'
+              - 'extracted_all/Mindora_V3-main/.nvmrc'
+              - 'extracted_all/Mindora_V3-main/.node-version'
+
+      - name: Set Turbo filter
+        id: set-filter
+        run: |
+          if [[ "${{ steps.global.outputs.config }}" == "true" ]]; then
+            echo "filter=" >> $GITHUB_OUTPUT
+            echo "Global config changed — running all packages"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "filter=--filter=[origin/${{ github.base_ref }}...HEAD]" >> $GITHUB_OUTPUT
+            echo "PR — running affected packages vs ${{ github.base_ref }}"
+          else
+            echo "filter=--filter=[HEAD^1]" >> $GITHUB_OUTPUT
+            echo "Push to main — running packages changed in last commit"
+          fi
+
+  # ─── 1. Secret & credential scan ─────────────────────────────────────────
+  # TruffleHog verifies secrets against their provider before alerting —
+  # no false-positive noise from test fixtures or example config files.
+  # REQUIRED: a live credential in the diff blocks the gate.
+  #
+  # ⚠ SHA PINNING (required before going live):
+  #   1. Find the latest release tag:
+  #      gh release view --repo trufflesecurity/trufflehog --json tagName
+  #   2. Get its commit SHA:
+  #      gh api repos/trufflesecurity/trufflehog/git/ref/tags/<tagName>
+  #   3. Replace `@main` below with `@<sha>  # <tagName>`
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve scan range
+        id: range
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "base=${{ github.event.pull_request.base.sha }}" >> $GITHUB_OUTPUT
+            echo "head=${{ github.event.pull_request.head.sha }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]]; then
+            echo "base=HEAD" >> $GITHUB_OUTPUT
+            echo "head=HEAD" >> $GITHUB_OUTPUT
+          else
+            echo "base=${{ github.event.before }}" >> $GITHUB_OUTPUT
+            echo "head=${{ github.event.after }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Scan for leaked credentials (TruffleHog)
+        uses: trufflesecurity/trufflehog@main # TODO: pin to SHA — see comment above
+        with:
+          path: ./
+          base: ${{ steps.range.outputs.base }}
+          head: ${{ steps.range.outputs.head }}
+          extra_args: --only-verified
+
+  # ─── 2. CodeQL static analysis (SAST) ───────────────────────────────────
+  # Detects SQL injection, XSS, SSRF, path traversal, prototype pollution, etc.
+  # security-events: write is scoped to this job only — all other jobs stay read-only.
+  codeql:
+    name: CodeQL analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          queries: security-extended
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:javascript-typescript
+
+  # ─── 3. Lint & format ────────────────────────────────────────────────────
+  quality:
+    name: Lint & format
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [detect-changes]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: extracted_all/Mindora_V3-main/.nvmrc
+          cache: npm
+          cache-dependency-path: extracted_all/Mindora_V3-main/package-lock.json
+
+      - name: Use declared npm version
+        run: npm install --global npm@10.9.2
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint affected packages
+        run: npx turbo run lint ${{ needs.detect-changes.outputs.turbo-filter }}
+
+      - name: Format check
+        run: npm run format:check
+
+  # ─── 4. Tests with real service containers ───────────────────────────────
+  # Uses the same docker-compose.yml as local dev (Postgres, Redis, MongoDB,
+  # RabbitMQ, Kong) instead of a separate, hand-maintained set of GitHub
+  # Actions `services:` containers — that duplication was exactly how this
+  # job drifted out of sync with the per-service-database architecture:
+  # Kong and RabbitMQ were missing entirely, and the one Postgres container
+  # only ever got a single shared `mindora` database, never the seven
+  # per-service ones (mindora_auth, mindora_admin, etc.) every current
+  # service actually reads from.
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [detect-changes]
+    env:
+      NODE_ENV: test
+
+      # Compose maps Postgres to host port 5434, not 5432 — see
+      # docker-compose.yml's comment on the Windows Docker Desktop bridge
+      # workaround. Matching it here (not 5432) is what the old config got wrong.
+      DATABASE_URL: postgresql://mindora:mindora@localhost:5434/mindora
+      AUTH_DATABASE_URL: postgresql://mindora:mindora@localhost:5434/mindora_auth
+      USER_DATABASE_URL: postgresql://mindora:mindora@localhost:5434/mindora_user
+      APPOINTMENT_DATABASE_URL: postgresql://mindora:mindora@localhost:5434/mindora_appointment
+      MOOD_DATABASE_URL: postgresql://mindora:mindora@localhost:5434/mindora_mood
+      ADMIN_DATABASE_URL: postgresql://mindora:mindora@localhost:5434/mindora_admin
+      AI_DATABASE_URL: postgresql://mindora:mindora@localhost:5434/mindora_ai
+      NOTIFICATION_DATABASE_URL: postgresql://mindora:mindora@localhost:5434/mindora_notifications
+      REDIS_URL: redis://localhost:6379
+      MONGODB_URI: mongodb://localhost:27017/mindora
+      RABBITMQ_URL: amqp://mindora:mindora@localhost:5672
+      KONG_URL: http://localhost:8000
+      # Fall back to a deterministic CI-only secret when repo secrets are not set.
+      # Set JWT_SECRET / REFRESH_SECRET in GitHub → Settings → Secrets for
+      # production-accurate test coverage.
+      JWT_SECRET: ${{ secrets.JWT_SECRET || 'ci-only-jwt-secret-not-for-production' }}
+      REFRESH_SECRET: ${{ secrets.REFRESH_SECRET || 'ci-only-refresh-secret-not-for-production' }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: extracted_all/Mindora_V3-main/.nvmrc
+          cache: npm
+          cache-dependency-path: extracted_all/Mindora_V3-main/package-lock.json
+
+      - name: Use declared npm version
+        run: npm install --global npm@10.9.2
+
+      - name: Start infrastructure (Postgres, Redis, MongoDB, RabbitMQ, Kong)
+        run: docker compose up -d --wait postgres mongodb redis rabbitmq kong
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Create per-service databases
+        # The postgres container only auto-creates the single POSTGRES_DB
+        # ('mindora') from docker-compose.yml — every service that migrated
+        # to its own isolated database needs its database created explicitly.
+        run: |
+          for db in mindora_auth mindora_user mindora_appointment mindora_mood mindora_admin mindora_ai mindora_notifications; do
+            exists=$(docker exec mindora-postgres psql -U mindora -tAc "SELECT 1 FROM pg_database WHERE datname = '$db'")
+            if [ "$exists" != "1" ]; then
+              docker exec mindora-postgres psql -U mindora -c "CREATE DATABASE $db"
+            fi
+          done
+
+      - name: Generate Prisma clients and apply migrations
+        # No global postinstall runs `prisma generate` — each service with
+        # its own schema needs this explicitly, in its own directory, against
+        # its own DATABASE_URL env var (see the per-service urls above).
+        run: |
+          for dir in apps/auth-service apps/user-service apps/appointment-service apps/mood-tracking-service apps/admin-service apps/ai-integration-service apps/notification-service; do
+            echo "::group::$dir"
+            (cd "$dir" && npx prisma generate && npx prisma migrate deploy)
+            echo "::endgroup::"
+          done
+
+      - name: Run tests for affected packages
+        run: npx turbo run test ${{ needs.detect-changes.outputs.turbo-filter }}
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            extracted_all/Mindora_V3-main/**/coverage/
+            extracted_all/Mindora_V3-main/**/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ─── 5. Build ────────────────────────────────────────────────────────────
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [quality, detect-changes]
+    env:
+      # prisma generate only needs these to be non-empty strings — it
+      # validates the schema's env("...") reference but never connects.
+      AUTH_DATABASE_URL: postgresql://mindora:mindora@localhost:5434/mindora_auth
+      USER_DATABASE_URL: postgresql://mindora:mindora@localhost:5434/mindora_user
+      APPOINTMENT_DATABASE_URL: postgresql://mindora:mindora@localhost:5434/mindora_appointment
+      MOOD_DATABASE_URL: postgresql://mindora:mindora@localhost:5434/mindora_mood
+      ADMIN_DATABASE_URL: postgresql://mindora:mindora@localhost:5434/mindora_admin
+      AI_DATABASE_URL: postgresql://mindora:mindora@localhost:5434/mindora_ai
+      NOTIFICATION_DATABASE_URL: postgresql://mindora:mindora@localhost:5434/mindora_notifications
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: extracted_all/Mindora_V3-main/.nvmrc
           cache: npm
           cache-dependency-path: extracted_all/Mindora_V3-main/package-lock.json
 
