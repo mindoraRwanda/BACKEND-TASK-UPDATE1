@@ -378,6 +378,7 @@ jobs:
     if: always()
     steps:
       - name: All required checks passed
+	working-directory: .
         env:
           SECRETS: ${{ needs.secret-scan.result }}
           CODEQL: ${{ needs.codeql.result }}
