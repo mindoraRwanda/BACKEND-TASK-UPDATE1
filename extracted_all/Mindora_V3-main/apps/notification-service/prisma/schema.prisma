@@ -31,3 +31,18 @@ model notification_logs {
   @@index([createdAt])
   @@index([userId, readAt])
 }
+model crisis_deliveries {
+  id            String    @id @default(uuid())
+  eventId       String
+  channel       String
+  recipient     String
+  status        String    @default("pending")
+  attempts      Int       @default(0)
+  failureReason String?
+  deliveredAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([eventId, channel])
+  @@index([status])
+}
