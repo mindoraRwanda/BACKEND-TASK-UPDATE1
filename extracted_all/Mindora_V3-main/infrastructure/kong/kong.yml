@@ -202,9 +202,15 @@ routes:
     service: user-service
     paths: [/internal/users]
     strip_path: false
-    methods: [GET, POST, PUT, PATCH, OPTIONS]
+    methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
     plugins:
       - name: jwt
+      # Therapist photo/CV uploads (5 MB file cap + multipart overhead).
+      - name: request-size-limiting
+        config:
+          allowed_payload_size: 6
+          size_unit: megabytes
+          require_content_length: false
       - name: rate-limiting
         config:
           minute: 300
@@ -386,6 +392,12 @@ routes:
     strip_path: true
     plugins:
       - name: jwt
+      # Therapist photo/CV uploads (5 MB file cap + multipart overhead).
+      - name: request-size-limiting
+        config:
+          allowed_payload_size: 6
+          size_unit: megabytes
+          require_content_length: false
       - name: rate-limiting
         config:
           minute: 100
