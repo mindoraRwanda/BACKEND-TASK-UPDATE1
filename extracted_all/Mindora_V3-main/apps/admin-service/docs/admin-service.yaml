@@ -15,6 +15,7 @@ servers:
     description: Via Kong gateway (production)
 tags:
   - name: Users
+  - name: Therapist Media
   - name: Moderation
   - name: Analytics
   - name: Audit Log
@@ -209,6 +210,263 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorMessage'
+  /therapists:
+    get:
+      tags:
+        - Therapist Media
+      summary: List therapists with photo/CV completeness (ADMIN only)
+      description: >-
+        Paginated. Each item has hasPhoto, hasCv and hasCvSummary. Filter with ?missing=photo|cv|summary and ?search=
+        (name or email).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+        - name: search
+          in: query
+          schema:
+            type: string
+            maxLength: 100
+        - name: missing
+          in: query
+          schema:
+            type: string
+            enum:
+              - photo
+              - cv
+              - summary
+      responses:
+        '200':
+          description: '{ therapists: [...], total, page, limit }'
+        '400':
+          description: Invalid query.
+        '401':
+          description: Missing or invalid token.
+        '403':
+          description: Caller is not an ADMIN.
+  /therapists/{userId}/photo:
+    put:
+      tags:
+        - Therapist Media
+      summary: Upload a therapist photo (ADMIN only)
+      description: >-
+        JPEG, PNG or WebP only, checked by file signature (not extension or Content-Type). Max 5 MB. Stored under a
+        random filename; the previous generated file is deleted. ADMIN only. Every change writes an audit_logs entry,
+        only after User Service confirms it.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: JPEG, PNG or WebP, max 5 MB
+      responses:
+        '200':
+          description: '{ therapist, auditLogId }'
+        '400':
+          description: Invalid request (bad userId, missing file, validation failed).
+        '401':
+          description: Missing or invalid token.
+        '403':
+          description: Caller is not an ADMIN.
+        '404':
+          description: Therapist not found.
+        '413':
+          description: File larger than 5 MB.
+        '415':
+          description: Not JPEG/PNG/WebP. The message lists the allowed types.
+    delete:
+      tags:
+        - Therapist Media
+      summary: Remove a therapist photo (ADMIN only)
+      description: ADMIN only. Every change writes an audit_logs entry, only after User Service confirms it.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: '{ therapist, auditLogId }'
+        '400':
+          description: Invalid request (bad userId, missing file, validation failed).
+        '401':
+          description: Missing or invalid token.
+        '403':
+          description: Caller is not an ADMIN.
+        '404':
+          description: Therapist not found.
+  /therapists/{userId}/cv:
+    put:
+      tags:
+        - Therapist Media
+      summary: Upload a therapist CV PDF (ADMIN only)
+      description: >-
+        PDF only (%PDF- signature), max 5 MB. Stored outside the public static folder; its path is never returned by any
+        endpoint. ADMIN only. Every change writes an audit_logs entry, only after User Service confirms it.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: PDF, max 5 MB
+      responses:
+        '200':
+          description: '{ therapist, auditLogId }'
+        '400':
+          description: Invalid request (bad userId, missing file, validation failed).
+        '401':
+          description: Missing or invalid token.
+        '403':
+          description: Caller is not an ADMIN.
+        '404':
+          description: Therapist not found.
+        '413':
+          description: File larger than 5 MB.
+        '415':
+          description: Not a PDF.
+    get:
+      tags:
+        - Therapist Media
+      summary: Download a therapist CV (ADMIN only)
+      description: >-
+        Returned as application/pdf with Content-Disposition: attachment and X-Content-Type-Options: nosniff. Every
+        download is audited (THERAPIST_CV_DOWNLOADED).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The PDF file.
+        '400':
+          description: Invalid request (bad userId, missing file, validation failed).
+        '401':
+          description: Missing or invalid token.
+        '403':
+          description: Caller is not an ADMIN.
+        '404':
+          description: Therapist not found.
+    delete:
+      tags:
+        - Therapist Media
+      summary: Remove a therapist CV (ADMIN only)
+      description: ADMIN only. Every change writes an audit_logs entry, only after User Service confirms it.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: '{ therapist, auditLogId }'
+        '400':
+          description: Invalid request (bad userId, missing file, validation failed).
+        '401':
+          description: Missing or invalid token.
+        '403':
+          description: Caller is not an ADMIN.
+        '404':
+          description: Therapist not found.
+  /therapists/{userId}/profile:
+    put:
+      tags:
+        - Therapist Media
+      summary: Update a therapist short CV and bio (ADMIN only)
+      description: >-
+        At least one field. null clears it. The audit entry records field names and lengths, not the text. ADMIN only.
+        Every change writes an audit_logs entry, only after User Service confirms it.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                cvSummary:
+                  type: string
+                  nullable: true
+                  maxLength: 1500
+                bio:
+                  type: string
+                  nullable: true
+                  maxLength: 2000
+      responses:
+        '200':
+          description: '{ therapist, auditLogId }'
+        '400':
+          description: Invalid request (bad userId, missing file, validation failed).
+        '401':
+          description: Missing or invalid token.
+        '403':
+          description: Caller is not an ADMIN.
+        '404':
+          description: Therapist not found.
   /users/{id}/suspend:
     put:
       tags:
