@@ -96,3 +96,17 @@ export {
   type UpdateTherapistApplicationDto,
   type UploadDocumentTypeDto,
 } from './therapist-application.js';
+export {
+  ALLOWED_CV_TYPES_MESSAGE,
+  ALLOWED_PHOTO_TYPES_MESSAGE,
+  MAX_UPLOAD_BYTES,
+  detectImageType,
+  isPdf,
+  type DetectedImageType,
+} from './file-signature.js';
+export {
+  CV_SUMMARY_MAX_LENGTH,
+  THERAPIST_BIO_MAX_LENGTH,
+  listAdminTherapistsQuerySchema,
+  updateTherapistProfileSchema,
+} from './admin.js';

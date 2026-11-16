@@ -47,3 +47,30 @@ export type ListAuditLogQueryDto = z.infer<typeof listAuditLogQuerySchema>;
 export type ListAlertsQueryDto = z.infer<typeof listAlertsQuerySchema>;
 export type ResolveModerationDto = z.infer<typeof resolveModerationSchema>;
 export type AnalyticsRangeQueryDto = z.infer<typeof analyticsRangeQuerySchema>;
+
+// Therapist profile media (photo / CV / short CV summary) -- admin-managed.
+export const CV_SUMMARY_MAX_LENGTH = 1500;
+export const THERAPIST_BIO_MAX_LENGTH = 2000;
+
+// Both fields optional so an admin can update one without re-sending the
+// other; null clears the field, an omitted key leaves it untouched.
+export const updateTherapistProfileSchema = z
+  .object({
+    cvSummary: z
+      .string()
+      .trim()
+      .max(CV_SUMMARY_MAX_LENGTH)
+      .nullable()
+      .optional(),
+    bio: z.string().trim().max(THERAPIST_BIO_MAX_LENGTH).nullable().optional(),
+  })
+  .refine((v) => v.cvSummary !== undefined || v.bio !== undefined, {
+    message: 'Provide cvSummary and/or bio',
+  });
+
+export const listAdminTherapistsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  search: z.string().trim().max(100).optional(),
+  missing: z.enum(['photo', 'cv', 'summary']).optional(),
+});
