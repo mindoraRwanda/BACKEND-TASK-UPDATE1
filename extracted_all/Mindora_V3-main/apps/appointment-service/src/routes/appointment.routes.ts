@@ -4,8 +4,6 @@ import {
   createAppointmentConfirmedEvent,
   type AppointmentSessionType,
 } from '@mindora/events';
-import { prisma } from '../lib/prisma.js';
-import { Prisma } from '../generated/prisma/index.js';
 import {
   analyticsRangeQuerySchema,
   appointmentListQuerySchema,
@@ -19,26 +17,29 @@ import {
   updateAvailabilitySchema,
 } from '@mindora/validation';
 import { Router } from 'express';
+import { config } from '../config.js';
+import { Prisma } from '../generated/prisma/index.js';
 import {
   defaultAvailabilityRange,
   filterAvailableSlots,
   generateConfiguredSlots,
+  getKigaliDayRange,
 } from '../lib/availability.js';
 import {
-  PastAppointmentError,
   bookAppointmentWithLock,
   isSlotConflictError,
+  PastAppointmentError,
   SlotUnavailableError,
 } from '../lib/book-appointment.js';
+import { prisma } from '../lib/prisma.js';
 import { publishAppointmentEvent } from '../lib/publish-appointment-event.js';
 import { serializeAppointment } from '../lib/serialize-appointment.js';
-import { config } from '../config.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 import {
   verifyJwt,
   type AuthenticatedRequest,
 } from '../middleware/authenticate.js';
 import { authenticatedRouteLimiter } from '../middleware/rate-limit.js';
-import { asyncHandler } from '../middleware/async-handler.js';
 
 export const appointmentRouter = Router();
 
@@ -284,8 +285,10 @@ appointmentRouter.get(
     };
 
     if (date) {
-      const dayStart = new Date(`${date}T00:00:00.000Z`);
-      const dayEnd = new Date(`${date}T23:59:59.999Z`);
+      const requestedKigaliDate = new Date(`${date}T12:00:00+02:00`);
+      const { start: dayStart, end: dayEnd } =
+        getKigaliDayRange(requestedKigaliDate);
+
       where.slotStart = { gte: dayStart, lte: dayEnd };
     }
 
@@ -647,10 +650,8 @@ appointmentRouter.get(
 
     const therapistId = authReq.user.userId;
     const now = new Date();
-    const todayStart = new Date(now);
-    todayStart.setUTCHours(0, 0, 0, 0);
-    const todayEnd = new Date(now);
-    todayEnd.setUTCHours(23, 59, 59, 999);
+
+    const { start: todayStart, end: todayEnd } = getKigaliDayRange(now);
 
     const [todaysSessions, pendingCount, upcomingCount, distinctPatients] =
       await Promise.all([

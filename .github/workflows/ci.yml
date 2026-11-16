@@ -35,6 +35,9 @@ jobs:
   detect-changes:
     name: Detect changes
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     timeout-minutes: 5
     outputs:
       turbo-filter: ${{ steps.set-filter.outputs.filter }}
@@ -165,7 +168,7 @@ jobs:
         run: npx turbo run lint ${{ needs.detect-changes.outputs.turbo-filter }}
 
       - name: Format check
-        run: npm run format:check
+        run: node scripts/check-changed-format.js
 
   # ─── 4. Tests with real service containers ───────────────────────────────
   # Uses the same docker-compose.yml as local dev (Postgres, Redis, MongoDB,

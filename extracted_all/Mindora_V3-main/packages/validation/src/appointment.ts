@@ -69,7 +69,7 @@ export const workingHoursWindowSchema = z
 // small enough that "send the whole thing back" is simpler and less
 // error-prone than a partial-update API for a list of windows.
 export const updateAvailabilitySchema = z.object({
-  timezone: z.string().min(1).max(64).default('Africa/Kigali'),
+  timezone: z.literal('Africa/Kigali').default('Africa/Kigali'),
   workingHours: z.array(workingHoursWindowSchema).max(50),
 });
 

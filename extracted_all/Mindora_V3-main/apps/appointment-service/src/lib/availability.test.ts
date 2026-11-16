@@ -3,7 +3,26 @@ import {
   fitsWorkingHours,
   generateCandidateSlotsFromWorkingHours,
   generateConfiguredSlots,
+  getKigaliDayRange,
 } from './availability.js';
+
+describe('getKigaliDayRange', () => {
+  it('calculates the correct Kigali calendar day across UTC date boundaries', () => {
+    const now = new Date('2026-11-13T00:30:00.000Z');
+    const { start, end } = getKigaliDayRange(now);
+
+    expect(start.toISOString()).toBe('2026-11-12T22:00:00.000Z');
+    expect(end.toISOString()).toBe('2026-11-13T21:59:59.999Z');
+  });
+
+  it('calculates the correct range when UTC and Kigali have the same date', () => {
+    const now = new Date('2026-11-13T12:00:00.000Z');
+    const { start, end } = getKigaliDayRange(now);
+
+    expect(start.toISOString()).toBe('2026-11-12T22:00:00.000Z');
+    expect(end.toISOString()).toBe('2026-11-13T21:59:59.999Z');
+  });
+});
 
 describe('generateCandidateSlotsFromWorkingHours', () => {
   // Africa/Kigali is UTC+2, so 09:00-17:00 Kigali local is 07:00-15:00 UTC.
@@ -22,7 +41,7 @@ describe('generateCandidateSlotsFromWorkingHours', () => {
       mondayNineToFive
     );
 
-    expect(slots).toHaveLength(8); // 07:00..14:00 UTC start hours = 8 one-hour slots
+    expect(slots).toHaveLength(8);
     expect(slots[0].slotStart.toISOString()).toBe('2026-06-08T07:00:00.000Z');
     expect(slots.at(-1)!.slotStart.toISOString()).toBe(
       '2026-06-08T14:00:00.000Z'
@@ -47,11 +66,10 @@ describe('generateCandidateSlotsFromWorkingHours', () => {
   });
 
   it('supports multiple windows on the same day (e.g. a lunch-break split)', () => {
-    // Monday 07:00-09:00 UTC and 11:00-13:00 UTC (09:00-11:00 and
-    // 13:00-15:00 Kigali local), skipping the 09:00-11:00 UTC lunch window.
+    // Monday 07:00-09:00 UTC and 11:00-13:00 UTC.
     const split = [
-      { dayOfWeek: 1, startMinute: 540, endMinute: 660 }, // 09:00-11:00 Kigali
-      { dayOfWeek: 1, startMinute: 780, endMinute: 900 }, // 13:00-15:00 Kigali
+      { dayOfWeek: 1, startMinute: 540, endMinute: 660 },
+      { dayOfWeek: 1, startMinute: 780, endMinute: 900 },
     ];
     const from = new Date('2026-06-08T00:00:00.000Z');
     const to = new Date('2026-06-09T00:00:00.000Z');
@@ -77,9 +95,6 @@ describe('generateCandidateSlotsFromWorkingHours', () => {
       mondayNineToFive
     );
 
-    // Only a slot fully contained within [from, to) can start on the hour
-    // at or after 08:30 and end by 09:30 — none does, since hourly slots
-    // start on the hour.
     expect(slots).toHaveLength(0);
   });
 });

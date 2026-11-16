@@ -216,9 +216,7 @@ describe('POST /', () => {
         $queryRaw: vi.fn().mockResolvedValue([]),
         therapistSchedule: {
           findUnique: vi.fn().mockResolvedValue({
-            workingHours: [
-              { dayOfWeek: 3, startMinute: 540, endMinute: 1020 },
-            ],
+            workingHours: [{ dayOfWeek: 3, startMinute: 540, endMinute: 1020 }],
             timeOff: [],
           }),
         },
@@ -253,9 +251,7 @@ describe('POST /', () => {
         $queryRaw: vi.fn().mockResolvedValue([{ id: 'existing' }]),
         therapistSchedule: {
           findUnique: vi.fn().mockResolvedValue({
-            workingHours: [
-              { dayOfWeek: 3, startMinute: 540, endMinute: 1020 },
-            ],
+            workingHours: [{ dayOfWeek: 3, startMinute: 540, endMinute: 1020 }],
             timeOff: [],
           }),
         },
@@ -279,6 +275,55 @@ describe('POST /', () => {
 
     expect(response.status).toBe(409);
     expect(response.body.message).toBe('Slot already booked');
+  });
+
+  it('returns a meaningful 400 when the requested appointment is in the past', async () => {
+    mockTransaction.mockImplementation(async (callback) =>
+      callback({ $executeRaw: vi.fn().mockResolvedValue(undefined) })
+    );
+
+    const app = createApp();
+    const response = await request(app)
+      .post('/')
+      .set('Authorization', `Bearer ${patientToken()}`)
+      .send({
+        therapistId,
+        slotStart: '2020-01-06T10:00:00.000Z',
+        slotEnd: '2020-01-06T11:00:00.000Z',
+        sessionType: 'VIDEO',
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe('Appointment must be in the future');
+  });
+
+  it('returns a meaningful 409 when the therapist has no matching working hours', async () => {
+    mockTransaction.mockImplementation(async (callback) =>
+      callback({
+        $executeRaw: vi.fn().mockResolvedValue(undefined),
+        therapistSchedule: {
+          findUnique: vi
+            .fn()
+            .mockResolvedValue({ workingHours: [], timeOff: [] }),
+        },
+      })
+    );
+
+    const app = createApp();
+    const response = await request(app)
+      .post('/')
+      .set('Authorization', `Bearer ${patientToken()}`)
+      .send({
+        therapistId,
+        slotStart: '2027-01-06T10:00:00.000Z',
+        slotEnd: '2027-01-06T11:00:00.000Z',
+        sessionType: 'VIDEO',
+      });
+
+    expect(response.status).toBe(409);
+    expect(response.body.message).toBe(
+      'Slot is outside therapist availability'
+    );
   });
 });
 

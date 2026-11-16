@@ -117,6 +117,7 @@ PUBLIC_KONG_URL=https://api.mindora.rw
 JWT_SECRET=<generate with: openssl rand -hex 32>
 INTERNAL_SERVICE_TOKEN=<generate locally with the SAME JWT_SECRET as above: JWT_SECRET=<value> npm run generate:service-token --workspace=@mindora/auth-service>
 MOOD_JOURNAL_ENCRYPTION_KEY=<generate with: openssl rand -hex 16>
+SCREENING_ENCRYPTION_KEY=<generate with: openssl rand -base64 32>
 COMMUNITY_ENCRYPTION_KEY=<generate with: openssl rand -hex 16>
 MESSAGE_ENCRYPTION_KEY=<generate with: openssl rand -hex 16>
 AI_INTERACTION_ENCRYPTION_KEY=<generate with: openssl rand -hex 16>

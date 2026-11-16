@@ -68,6 +68,26 @@ export function defaultAvailabilityRange(): { from: Date; to: Date } {
 // platform's target market doesn't have.
 const KIGALI_OFFSET_MINUTES = 120;
 
+export function getKigaliDayRange(now: Date): {
+  start: Date;
+  end: Date;
+} {
+  const offsetMs = KIGALI_OFFSET_MINUTES * 60 * 1000;
+  const shifted = new Date(now.getTime() + offsetMs);
+
+  const start = new Date(
+    Date.UTC(
+      shifted.getUTCFullYear(),
+      shifted.getUTCMonth(),
+      shifted.getUTCDate()
+    ) - offsetMs
+  );
+
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
+
+  return { start, end };
+}
+
 export interface WorkingHoursWindow {
   dayOfWeek: number; // 0=Sunday..6=Saturday
   startMinute: number;
@@ -131,6 +151,19 @@ export function generateConfiguredSlots(
 ): TimeSlot[] {
   if (!workingHours?.length) return [];
   return generateCandidateSlotsFromWorkingHours(from, to, workingHours);
+}
+
+/** True only when the interval exactly matches a generated configured slot. */
+export function isGeneratedConfiguredSlot(
+  slotStart: Date,
+  slotEnd: Date,
+  workingHours: WorkingHoursWindow[] | null | undefined
+): boolean {
+  return generateConfiguredSlots(slotStart, slotEnd, workingHours).some(
+    (slot) =>
+      slot.slotStart.getTime() === slotStart.getTime() &&
+      slot.slotEnd.getTime() === slotEnd.getTime()
+  );
 }
 
 // Same hourly-slot cadence as generateCandidateSlots above, but windowed by

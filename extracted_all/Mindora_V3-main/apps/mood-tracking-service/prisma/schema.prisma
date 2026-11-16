@@ -28,3 +28,23 @@ model MoodEntry {
   @@index([userId, recordedAt])
   @@map("mood_entries")
 }
+
+model ScreeningResult {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @map("user_id") @db.Uuid
+  instrumentId     String   @map("instrument_id")
+  scoringVersion   String   @map("scoring_version")
+  answersEncrypted String   @map("answers_encrypted") @db.Text
+  rawScore         Int      @map("raw_score")
+  displayScore     String   @map("display_score")
+  maxScore         String   @map("max_score")
+  severity         String
+  label            String
+  interpretation   String   @db.Text
+  extras           Json?
+  completedAt      DateTime @default(now()) @map("completed_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@index([userId, completedAt])
+  @@map("screening_results")
+}

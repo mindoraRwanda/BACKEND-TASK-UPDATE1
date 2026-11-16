@@ -7,6 +7,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import helmet from 'helmet';
 import { moodRouter } from './routes/mood.routes.js';
+import { screeningRouter } from './routes/screening.routes.js';
 import { registerOpenApiDocs } from './lib/openapi-docs.js';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
@@ -35,6 +36,7 @@ export function createApp() {
   }
 
   app.use(moodRouter);
+  app.use(screeningRouter);
 
   // Catches errors forwarded via next(err) — including rejected promises
   // from asyncHandler-wrapped routes — so a transient failure (e.g. a

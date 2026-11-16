@@ -22,6 +22,7 @@ Patient mood logging with TimescaleDB analytics, Redis caching, and RabbitMQ con
 | ------ | ----------------- | --------------- | ---------------------------------------------------------------------------------------- |
 | GET    | `/health`         | No              | Health check                                                                             |
 | POST   | `/log`            | JWT (patient)   | Log mood — 10/day limit, encrypted journal; optional `recordedAt` backfills a missed day |
+| POST   | `/screenings`     | JWT (patient)   | Persist encrypted answers and a server-calculated screening result                       |
 | GET    | `/today`          | JWT (patient)   | Already checked in today? (`?timezone=` IANA name)                                       |
 | GET    | `/history`        | JWT (patient)   | Paginated history (`?startDate=`, `?endDate=`)                                           |
 | GET    | `/summary`        | JWT (patient)   | Bucketed aggregates for the dashboard chart (`?granularity=day\|week\|month`)            |
@@ -50,9 +51,9 @@ separate read-then-write.
 
 ### `/today` and time zones
 
-"Today" is only answerable in the user's own zone — a Kigali user (UTC+3)
+"Today" is only answerable in the user's own zone — a Kigali user (UTC+2)
 checking in at 01:00 local is still on the previous UTC day, so the UTC default
-would be wrong for the first three hours of every day. Clients should send
+would be wrong for the first two hours of every day. Clients should send
 `Intl.DateTimeFormat().resolvedOptions().timeZone`. The day-boundary helper
 (`src/lib/local-day.ts`) is DST-correct — a spring-forward day resolves to a
 23-hour range.
@@ -84,9 +85,22 @@ npm run dev -w @mindora/mood-tracking-service
 | Variable                      | Purpose                                                                                                                                                                       |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MOOD_JOURNAL_ENCRYPTION_KEY` | AES-256-GCM key for journal notes                                                                                                                                             |
+| `SCREENING_ENCRYPTION_KEY`    | Required base64-encoded 32-byte AES-256-GCM key for screening answers                                                                                                         |
 | `MOOD_DATABASE_URL`           | PostgreSQL + TimescaleDB — this was previously (and incorrectly) documented as `DATABASE_URL`; that's the orphaned `@mindora/database` package's variable, not this service's |
 | `REDIS_URL`                   | Rate limit + insights cache                                                                                                                                                   |
 | `RABBITMQ_URL`                | Event publishing                                                                                                                                                              |
+
+Screening results are stored separately from mood entries. The patient ID is
+derived from the verified JWT; submitted patient IDs and client scores are
+rejected. Screening answers are encrypted with `SCREENING_ENCRYPTION_KEY` and
+are never included in the submission response. Scoring version
+`public-screenings-v1` matches the public frontend rules at implementation time
+and must be bumped when those rules change. This endpoint does not trigger
+crisis escalation.
+
+Generate the screening key separately from the journal key (for example,
+`openssl rand -base64 32`). Submissions return 503 when the screening key is
+missing or invalid.
 
 ## Tests
 

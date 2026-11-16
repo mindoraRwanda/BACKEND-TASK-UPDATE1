@@ -60,6 +60,12 @@ export {
   type MoodTodayQueryDto,
 } from './mood.js';
 export {
+  SCREENING_INSTRUMENTS,
+  screeningSubmissionSchema,
+  type ScreeningInstrumentId,
+  type ScreeningSubmissionDto,
+} from './screening.js';
+export {
   analyticsRangeQuerySchema,
   listAlertsQuerySchema,
   listAuditLogQuerySchema,

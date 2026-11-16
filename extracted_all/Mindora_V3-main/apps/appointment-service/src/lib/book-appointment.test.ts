@@ -23,7 +23,9 @@ const therapistId = '22222222-2222-4222-8222-222222222222';
 const patientId = '11111111-1111-4111-8111-111111111111';
 
 function upcomingInput() {
-  const localDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000 + 2 * 60 * 60 * 1000);
+  const localDate = new Date(
+    Date.now() + 3 * 24 * 60 * 60 * 1000 + 2 * 60 * 60 * 1000
+  );
   const slotStart = new Date(
     Date.UTC(
       localDate.getUTCFullYear(),
@@ -96,14 +98,73 @@ describe('bookAppointmentWithLock availability checks', () => {
     expect(mocks.publish).toHaveBeenCalledOnce();
   });
 
+  it('accepts a slot that exactly matches a generated configured slot', async () => {
+    const tx = setup({
+      workingHours: [
+        { dayOfWeek: input.dayOfWeek, startMinute: 540, endMinute: 1020 },
+      ],
+      timeOff: [],
+    });
+
+    await expect(
+      bookAppointmentWithLock(patientId, input)
+    ).resolves.toBeDefined();
+    expect(tx.appointment.create).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a one-hour appointment starting between generated slots', async () => {
+    input.slotStart = new Date(input.slotStart.getTime() + 30 * 60 * 1000);
+    input.slotEnd = new Date(input.slotStart.getTime() + 60 * 60 * 1000);
+    const tx = setup({
+      workingHours: [
+        { dayOfWeek: input.dayOfWeek, startMinute: 540, endMinute: 1020 },
+      ],
+      timeOff: [],
+    });
+
+    await expect(
+      bookAppointmentWithLock(patientId, input)
+    ).rejects.toBeInstanceOf(SlotUnavailableError);
+    expect(tx.appointment.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a duration shorter than the generated one-hour slot', async () => {
+    input.slotEnd = new Date(input.slotStart.getTime() + 30 * 60 * 1000);
+    const tx = setup({
+      workingHours: [
+        { dayOfWeek: input.dayOfWeek, startMinute: 540, endMinute: 1020 },
+      ],
+      timeOff: [],
+    });
+
+    await expect(
+      bookAppointmentWithLock(patientId, input)
+    ).rejects.toBeInstanceOf(SlotUnavailableError);
+    expect(tx.appointment.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a slot outside the configured working-hours window', async () => {
+    const tx = setup({
+      workingHours: [
+        { dayOfWeek: input.dayOfWeek, startMinute: 660, endMinute: 1020 },
+      ],
+      timeOff: [],
+    });
+
+    await expect(
+      bookAppointmentWithLock(patientId, input)
+    ).rejects.toBeInstanceOf(SlotUnavailableError);
+    expect(tx.appointment.create).not.toHaveBeenCalled();
+  });
+
   it('rejects past appointments before querying availability or inserting', async () => {
     input.slotStart = new Date(Date.now() - 60_000);
     input.slotEnd = new Date(input.slotStart.getTime() + 60 * 60 * 1000);
     const tx = setup(null);
 
-    await expect(bookAppointmentWithLock(patientId, input)).rejects.toBeInstanceOf(
-      PastAppointmentError
-    );
+    await expect(
+      bookAppointmentWithLock(patientId, input)
+    ).rejects.toBeInstanceOf(PastAppointmentError);
     expect(tx.therapistSchedule.findUnique).not.toHaveBeenCalled();
     expect(tx.appointment.create).not.toHaveBeenCalled();
   });

@@ -58,6 +58,38 @@ paths:
         '429':
           description: Daily limit exceeded
 
+  /screenings:
+    post:
+      summary: Submit a screening result
+      description: |
+        Patient only. Accepts answers for one supported public screening
+        instrument, calculates the result on the server, encrypts and persists
+        the answers, and returns the saved score without the answers. The
+        patient ID is derived from the JWT. Client scores and patient IDs are
+        rejected. Missing screening encryption configuration returns 503.
+        This endpoint does not initiate crisis escalation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScreeningSubmission'
+      responses:
+        '201':
+          description: Saved screening result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScreeningResult'
+        '400':
+          description: Invalid instrument, answers, or unsupported request fields
+        '401':
+          description: Unauthorized
+        '403':
+          description: Not a patient
+        '503':
+          description: Screening encryption is not configured
+
   /history:
     get:
       summary: Paginated mood history
@@ -138,9 +170,9 @@ paths:
         Patient only. Backs the check-in screen's "already logged today" state.
 
         `timezone` matters: "today" is only answerable in the user's own zone.
-        A Kigali user (UTC+3) checking in at 01:00 local is still on the
+        A Kigali user (UTC+2) checking in at 01:00 local is still on the
         previous UTC day, so the UTC default would give the wrong answer for
-        the first three hours of every day. Send
+        the first two hours of every day. Send
         `Intl.DateTimeFormat().resolvedOptions().timeZone`.
 
         `entry` is the most recent entry within the local day (null if none).
@@ -265,6 +297,133 @@ components:
       scheme: bearer
       bearerFormat: JWT
   schemas:
+    ScreeningSubmission:
+      description: >-
+        Answers must include exactly the listed zero-based indexes. GAD-7 and
+        each DASS-21 subscale accept 0–3; ASRS and CYBOCS accept 0–4.
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [instrumentId, answers]
+          properties:
+            instrumentId: { type: string, enum: [gad7] }
+            answers:
+              type: object
+              required: ['0', '1', '2', '3', '4', '5', '6']
+              minProperties: 7
+              maxProperties: 7
+              additionalProperties: { type: integer, minimum: 0, maximum: 3 }
+        - type: object
+          additionalProperties: false
+          required: [instrumentId, answers]
+          properties:
+            instrumentId: { type: string, enum: [dass21-depression] }
+            answers:
+              type: object
+              required: ['0', '1', '2', '3', '4', '5', '6']
+              minProperties: 7
+              maxProperties: 7
+              additionalProperties: { type: integer, minimum: 0, maximum: 3 }
+        - type: object
+          additionalProperties: false
+          required: [instrumentId, answers]
+          properties:
+            instrumentId: { type: string, enum: [dass21-anxiety] }
+            answers:
+              type: object
+              required: ['0', '1', '2', '3', '4', '5', '6']
+              minProperties: 7
+              maxProperties: 7
+              additionalProperties: { type: integer, minimum: 0, maximum: 3 }
+        - type: object
+          additionalProperties: false
+          required: [instrumentId, answers]
+          properties:
+            instrumentId: { type: string, enum: [dass21-stress] }
+            answers:
+              type: object
+              required: ['0', '1', '2', '3', '4', '5', '6']
+              minProperties: 7
+              maxProperties: 7
+              additionalProperties: { type: integer, minimum: 0, maximum: 3 }
+        - type: object
+          additionalProperties: false
+          required: [instrumentId, answers]
+          properties:
+            instrumentId: { type: string, enum: [asrs] }
+            answers:
+              type: object
+              required:
+                [
+                  '0',
+                  '1',
+                  '2',
+                  '3',
+                  '4',
+                  '5',
+                  '6',
+                  '7',
+                  '8',
+                  '9',
+                  '10',
+                  '11',
+                  '12',
+                  '13',
+                  '14',
+                  '15',
+                  '16',
+                  '17',
+                ]
+              minProperties: 18
+              maxProperties: 18
+              additionalProperties: { type: integer, minimum: 0, maximum: 4 }
+        - type: object
+          additionalProperties: false
+          required: [instrumentId, answers]
+          properties:
+            instrumentId: { type: string, enum: [cybocs] }
+            answers:
+              type: object
+              required: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+              minProperties: 10
+              maxProperties: 10
+              additionalProperties: { type: integer, minimum: 0, maximum: 4 }
+    ScreeningResult:
+      type: object
+      required:
+        - id
+        - patientId
+        - instrumentId
+        - scoringVersion
+        - rawScore
+        - displayScore
+        - maxScore
+        - severity
+        - label
+        - interpretation
+        - completedAt
+        - createdAt
+      properties:
+        id: { type: string, format: uuid }
+        patientId: { type: string, format: uuid }
+        instrumentId: { type: string }
+        scoringVersion: { type: string }
+        rawScore: { type: integer }
+        displayScore: { type: string }
+        maxScore: { type: string }
+        severity: { type: string }
+        label: { type: string }
+        interpretation: { type: string }
+        extras:
+          type: array
+          items:
+            type: object
+            required: [label, value]
+            properties:
+              label: { type: string }
+              value: { type: string }
+        completedAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
     LogMoodRequest:
       type: object
       required: [moodScore]

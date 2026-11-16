@@ -7,7 +7,7 @@ import { Prisma } from '../generated/prisma/index.js';
 import type { BookAppointmentDto } from '@mindora/validation';
 import { publishAppointmentEvent } from './publish-appointment-event.js';
 import { config } from '../config.js';
-import { fitsWorkingHours } from './availability.js';
+import { fitsWorkingHours, isGeneratedConfiguredSlot } from './availability.js';
 
 function overlaps(
   slotStart: Date,
@@ -71,7 +71,16 @@ export async function bookAppointmentWithLock(
 
     if (
       !schedule ||
-      !fitsWorkingHours(input.slotStart, input.slotEnd, schedule.workingHours) ||
+      !isGeneratedConfiguredSlot(
+        input.slotStart,
+        input.slotEnd,
+        schedule.workingHours
+      ) ||
+      !fitsWorkingHours(
+        input.slotStart,
+        input.slotEnd,
+        schedule.workingHours
+      ) ||
       schedule.timeOff.length > 0
     ) {
       throw new SlotUnavailableError();
