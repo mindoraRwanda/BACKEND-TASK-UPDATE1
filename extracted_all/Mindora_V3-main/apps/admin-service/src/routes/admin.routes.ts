@@ -16,11 +16,15 @@ import type { Prisma } from '../generated/prisma/index.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { asyncHandler } from '../middleware/async-handler.js';
 import { prisma } from '../lib/prisma.js';
+import { therapistMediaRouter } from './therapist-media.routes.js';
 
 export const adminRouter = Router();
 
 // Apply admin guard to all routes
 adminRouter.use(requireAdmin);
+
+// Therapist photo / CV / short-CV management (own file; same admin guard).
+adminRouter.use(therapistMediaRouter);
 
 const KONG_URL = process.env.KONG_URL ?? 'http://localhost:8000';
 
