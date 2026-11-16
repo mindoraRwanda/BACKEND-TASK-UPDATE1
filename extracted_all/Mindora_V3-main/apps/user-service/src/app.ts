@@ -3,17 +3,16 @@ import express, {
   type Request,
   type Response,
 } from 'express';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { getPhotosDir } from './lib/therapist-media.js';
 import helmet from 'helmet';
 import multer from 'multer';
 import swaggerUi from 'swagger-ui-express';
 import { userRouter } from './routes/user.routes.js';
 import { therapistApplicationRouter } from './routes/therapist-application.routes.js';
+import { therapistMediaRouter } from './routes/therapist-media.routes.js';
 import { openApiSpec } from './docs/openapi.js';
 
-const moduleDir = dirname(fileURLToPath(import.meta.url));
-const therapistPhotosDir = resolve(moduleDir, '../public/therapist-photos');
+const therapistPhotosDir = getPhotosDir();
 
 export function createApp() {
   const app = express();
@@ -57,6 +56,9 @@ export function createApp() {
   // shadowed by userRouter's generic GET /internal/users/:id (same ordering
   // issue documented on /internal/users/analytics in user.routes.ts).
   app.use(therapistApplicationRouter);
+  // Same ordering reason: GET /internal/users/therapists (admin media list)
+  // must be matched before userRouter's /internal/users/:id.
+  app.use(therapistMediaRouter);
   app.use(userRouter);
 
   // Multer (file upload) errors — bad mimetype from the fileFilter, or a

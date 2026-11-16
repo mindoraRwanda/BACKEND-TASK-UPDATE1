@@ -113,3 +113,28 @@ export async function streamDocumentForToken(
     downloadStream.pipe(res);
   });
 }
+
+// Removes a stored document by its storage key. Missing files are ignored:
+// callers delete best-effort after the DB row has already been updated, and
+// a stale key must not turn a successful replace into an error.
+export async function deleteDocumentByKey(storageKey: string): Promise<void> {
+  const bucket = getDocumentsBucket();
+  const files = await bucket.find({ filename: storageKey }).toArray();
+  await Promise.all(files.map((file) => bucket.delete(file._id)));
+}
+
+// Streams a stored document to the response. Unlike streamDocumentForToken
+// this performs NO authorization of its own - only call it from a route that
+// has already verified the caller (the SERVICE-role internal CV route).
+export async function streamDocumentByKey(
+  storageKey: string,
+  res: Response
+): Promise<void> {
+  const bucket = getDocumentsBucket();
+  await new Promise<void>((resolve, reject) => {
+    const downloadStream = bucket.openDownloadStreamByName(storageKey);
+    downloadStream.once('error', reject);
+    downloadStream.once('end', () => resolve());
+    downloadStream.pipe(res);
+  });
+}

@@ -105,6 +105,14 @@ export const openApiSpec = {
               'settable via PUT /me, only populated by the seed script.',
             example: 'http://localhost:8000/api/v1/users/photos/m1.jpg',
           },
+          cvSummary: {
+            type: 'string',
+            nullable: true,
+            maxLength: 1500,
+            description:
+              'Short public professional summary. The CV file itself is ' +
+              'admin-only and never exposed here.',
+          },
           fcmToken: { type: 'string', nullable: true },
           notificationPreferences: {
             $ref: '#/components/schemas/NotificationPreferences',

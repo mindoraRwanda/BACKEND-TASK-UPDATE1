@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { therapistPrivateOmit } from '../lib/therapist-media.js';
 import {
   analyticsRangeQuerySchema,
   listUsersQuerySchema,
@@ -602,6 +603,7 @@ userRouter.get(
     if (role === 'THERAPIST') {
       const profile = await prisma.therapistProfile.findUnique({
         where: { userId },
+        omit: therapistPrivateOmit,
       });
       if (!profile) {
         res.status(404).json({ message: 'Profile not found' });
@@ -665,6 +667,7 @@ userRouter.put(
           timezone: data.timezone,
           languagePreference: data.languagePreference,
         },
+        omit: therapistPrivateOmit,
       });
       res.status(200).json({ role, profile });
       return;
@@ -713,6 +716,7 @@ userRouter.get(
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
+        omit: therapistPrivateOmit,
       }),
       prisma.therapistProfile.count({ where }),
     ]);

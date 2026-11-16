@@ -49,6 +49,15 @@ model TherapistProfile {
   languages               String[] @default([])
   isAcceptingPatients     Boolean  @default(true) @map("is_accepting_patients")
   photoUrl                String?  @map("photo_url")
+  // Short patient-facing professional summary (max 1500 chars, enforced in
+  // validation, not the DB). Public, like bio and photoUrl.
+  cvSummary               String?  @map("cv_summary")
+  // Optional full CV PDF, admin-only. cvStorageKey is a GridFS key and must
+  // NEVER appear in a public response: every public/self read of this model
+  // passes `omit: therapistPrivateOmit` (lib/therapist-media.ts).
+  cvStorageKey            String?  @map("cv_storage_key")
+  cvFileName              String?  @map("cv_file_name")
+  cvSizeBytes             Int?     @map("cv_size_bytes")
   fcmToken                String?  @map("fcm_token")
   notificationPreferences Json     @default("{\"push\": true, \"email\": true, \"sms\": true}") @map("notification_preferences")
   // Denormalized copies from Auth Service's users table (role, email),
