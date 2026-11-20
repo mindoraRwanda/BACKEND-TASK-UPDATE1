@@ -1,8 +1,8 @@
 name: Sync reviewed MINDORA V3 source
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    branches: [main]
+  push:
+    branches:
+      - integrate/olivi-v3-release-into-railway-source
 permissions:
   contents: write
 jobs:
@@ -12,7 +12,7 @@ jobs:
       - name: Check out Railway deployment repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
+          ref: integrate/olivi-v3-release-into-railway-source
       - name: Check out reviewed MINDORA V3 source
         uses: actions/checkout@v4
         with:
@@ -31,5 +31,5 @@ jobs:
           git add extracted_all/Mindora_V3-main
           if ! git diff --cached --quiet; then
             git commit -m "sync: import reviewed MINDORA V3 release source"
-            git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+            git push origin HEAD:integrate/olivi-v3-release-into-railway-source
           fi
