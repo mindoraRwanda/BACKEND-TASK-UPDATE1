@@ -1,0 +1,51 @@
+name: Temporary backend formatter
+on:
+  push:
+    branches:
+      - fix/backend-prettier-ci
+permissions:
+  contents: write
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Pin npm
+        run: npm install --global npm@10.9.2
+      - name: Install dependencies
+        working-directory: extracted_all/Mindora_V3-main
+        run: npm ci
+      - name: Format the seven failing files
+        working-directory: extracted_all/Mindora_V3-main
+        run: |
+          npx prettier --write \
+            apps/ai-integration-service/src/routes/ai.routes.ts \
+            apps/appointment-service/src/lib/book-appointment.test.ts \
+            apps/appointment-service/src/lib/book-appointment.ts \
+            apps/appointment-service/src/routes/appointment.routes.test.ts \
+            apps/notification-service/src/__tests__/consumers.test.ts \
+            apps/notification-service/src/consumers.ts \
+            apps/notification-service/src/sms.ts
+      - name: Commit formatted files and remove temporary workflow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add extracted_all/Mindora_V3-main/apps/ai-integration-service/src/routes/ai.routes.ts
+          git add extracted_all/Mindora_V3-main/apps/appointment-service/src/lib/book-appointment.test.ts
+          git add extracted_all/Mindora_V3-main/apps/appointment-service/src/lib/book-appointment.ts
+          git add extracted_all/Mindora_V3-main/apps/appointment-service/src/routes/appointment.routes.test.ts
+          git add extracted_all/Mindora_V3-main/apps/notification-service/src/__tests__/consumers.test.ts
+          git add extracted_all/Mindora_V3-main/apps/notification-service/src/consumers.ts
+          git add extracted_all/Mindora_V3-main/apps/notification-service/src/sms.ts
+          git rm .github/workflows/temp-backend-format.yml
+          git commit -m "style: format backend CI failing files"
+          git push origin HEAD:fix/backend-prettier-ci
