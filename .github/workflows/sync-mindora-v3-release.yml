@@ -1,0 +1,35 @@
+name: Sync reviewed MINDORA V3 source
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  sync-source:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Railway deployment repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - name: Check out reviewed MINDORA V3 source
+        uses: actions/checkout@v4
+        with:
+          repository: mindoraRwanda/Mindora_V3
+          ref: b0238d57d3415c4fc0622fbd272de8260151d9ff
+          path: upstream
+          persist-credentials: false
+      - name: Sync source into Railway build context
+        run: |
+          mkdir -p extracted_all/Mindora_V3-main
+          rsync -a --delete --exclude='.git/' --exclude='Dockerfile.bundle' upstream/ extracted_all/Mindora_V3-main/
+      - name: Commit synchronized source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add extracted_all/Mindora_V3-main
+          if ! git diff --cached --quiet; then
+            git commit -m "sync: import reviewed MINDORA V3 release source"
+            git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+          fi
