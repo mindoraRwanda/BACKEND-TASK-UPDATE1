@@ -7,7 +7,9 @@ const appointmentStatusSchema = z.enum([
   'COMPLETED',
 ]);
 
-const sessionTypeSchema = z.enum(['VIDEO', 'AUDIO', 'IN_PERSON', 'CHAT']);
+// New bookings follow the current product contract. Legacy IN_PERSON/CHAT
+// values remain in the database enum so historical appointments still load.
+const sessionTypeSchema = z.enum(['VIDEO', 'AUDIO']);
 
 export const availabilityQuerySchema = z.object({
   from: z.coerce.date().optional(),
