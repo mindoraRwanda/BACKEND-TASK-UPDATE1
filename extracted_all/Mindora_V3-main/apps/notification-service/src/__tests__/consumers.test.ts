@@ -398,23 +398,23 @@ describe('mood and AI handlers', () => {
     mocks.subscribeWithRetry.mockResolvedValue(undefined);
     await startConsumers();
     process.env.ADMIN_CRISIS_EMAIL = 'admin@test.com';
-process.env.ADMIN_CRISIS_PHONE = '+250788000000';
-process.env.SMS_ENABLED = 'true';
-process.env.AT_API_KEY = 'test-key';
-process.env.AT_USERNAME = 'sandbox';
+    process.env.ADMIN_CRISIS_PHONE = '+250788000000';
+    process.env.SMS_ENABLED = 'true';
+    process.env.AT_API_KEY = 'test-key';
+    process.env.AT_USERNAME = 'sandbox';
 
-mocks.prisma.crisis_deliveries.upsert.mockResolvedValue({
-  id: 'delivery-1',
-  status: 'pending',
-});
+    mocks.prisma.crisis_deliveries.upsert.mockResolvedValue({
+      id: 'delivery-1',
+      status: 'pending',
+    });
 
-mocks.prisma.crisis_deliveries.updateMany.mockResolvedValue({
-  count: 1,
-});
+    mocks.prisma.crisis_deliveries.updateMany.mockResolvedValue({
+      count: 1,
+    });
 
-mocks.prisma.crisis_deliveries.update.mockResolvedValue({});
-mocks.sendEmail.mockResolvedValue(true);
-mocks.sendSms.mockResolvedValue(undefined);
+    mocks.prisma.crisis_deliveries.update.mockResolvedValue({});
+    mocks.sendEmail.mockResolvedValue(true);
+    mocks.sendSms.mockResolvedValue(undefined);
   });
 
   it('does not send push for mood events — log only', async () => {
@@ -431,88 +431,85 @@ mocks.sendSms.mockResolvedValue(undefined);
     expect(mocks.sendPushNotification).not.toHaveBeenCalled();
   });
 
-
-it('sends crisis email and SMS to the admin', async () => {
-  const payload = {
-    eventId: '714ccdf3-af66-48be-b051-1eedfc17d1a6',
-    occurredAt: '2024-01-01T00:00:00Z',
-    userId: 'afdaad18-1241-47c8-a633-f912fa3f9d03',
-    sessionId: null,
-    crisisLevel: 5,
-    timestamp: '2024-01-01T00:00:00Z',
-  };
-
-  await capturedHandler(EXCHANGES.AI)(payload);
-
-  expect(mocks.sendEmail).toHaveBeenCalledWith(
-    'admin@test.com',
-    'Mindora: Crisis alert requires attention',
-    expect.stringContaining('Severity level: 5')
-  );
-
-  expect(mocks.sendSms).toHaveBeenCalledWith(
-    'ADMIN_CRISIS_ALERT',
-    expect.stringContaining('severity level 5'),
-    '+250788000000',
-    'ai.crisis.admin'
-  );
-
-  expect(mocks.sendPushNotification).not.toHaveBeenCalled();
-});
-
-it('attempts SMS even when email delivery fails', async () => {
-  mocks.sendEmail.mockRejectedValueOnce(new Error('Email provider failed'));
-
-  await expect(
-    capturedHandler(EXCHANGES.AI)({
-      eventId: '814ccdf3-af66-48be-b051-1eedfc17d1a6',
+  it('sends crisis email and SMS to the admin', async () => {
+    const payload = {
+      eventId: '714ccdf3-af66-48be-b051-1eedfc17d1a6',
       occurredAt: '2024-01-01T00:00:00Z',
       userId: 'afdaad18-1241-47c8-a633-f912fa3f9d03',
       sessionId: null,
       crisisLevel: 5,
       timestamp: '2024-01-01T00:00:00Z',
-    })
-  ).rejects.toThrow('1 crisis notification channel(s) failed');
+    };
 
-  expect(mocks.sendSms).toHaveBeenCalled();
-});
+    await capturedHandler(EXCHANGES.AI)(payload);
 
-it('does not resend channels already marked as delivered', async () => {
-  mocks.prisma.crisis_deliveries.upsert.mockResolvedValue({
-    id: 'delivery-already-sent',
-    status: 'delivered',
+    expect(mocks.sendEmail).toHaveBeenCalledWith(
+      'admin@test.com',
+      'Mindora: Crisis alert requires attention',
+      expect.stringContaining('Severity level: 5')
+    );
+
+    expect(mocks.sendSms).toHaveBeenCalledWith(
+      'ADMIN_CRISIS_ALERT',
+      expect.stringContaining('severity level 5'),
+      '+250788000000',
+      'ai.crisis.admin'
+    );
+
+    expect(mocks.sendPushNotification).not.toHaveBeenCalled();
   });
 
-  await capturedHandler(EXCHANGES.AI)({
-    eventId: '914ccdf3-af66-48be-b051-1eedfc17d1a6',
-    occurredAt: '2024-01-01T00:00:00Z',
-    userId: 'afdaad18-1241-47c8-a633-f912fa3f9d03',
-    sessionId: null,
-    crisisLevel: 5,
-    timestamp: '2024-01-01T00:00:00Z',
+  it('attempts SMS even when email delivery fails', async () => {
+    mocks.sendEmail.mockRejectedValueOnce(new Error('Email provider failed'));
+
+    await expect(
+      capturedHandler(EXCHANGES.AI)({
+        eventId: '814ccdf3-af66-48be-b051-1eedfc17d1a6',
+        occurredAt: '2024-01-01T00:00:00Z',
+        userId: 'afdaad18-1241-47c8-a633-f912fa3f9d03',
+        sessionId: null,
+        crisisLevel: 5,
+        timestamp: '2024-01-01T00:00:00Z',
+      })
+    ).rejects.toThrow('1 crisis notification channel(s) failed');
+
+    expect(mocks.sendSms).toHaveBeenCalled();
   });
 
-  expect(mocks.sendEmail).not.toHaveBeenCalled();
-  expect(mocks.sendSms).not.toHaveBeenCalled();
-  expect(mocks.prisma.crisis_deliveries.updateMany).not.toHaveBeenCalled();
-});
+  it('does not resend channels already marked as delivered', async () => {
+    mocks.prisma.crisis_deliveries.upsert.mockResolvedValue({
+      id: 'delivery-already-sent',
+      status: 'delivered',
+    });
 
-it('attempts email even when SMS delivery fails', async () => {
-  mocks.sendSms.mockRejectedValueOnce(
-    new Error('SMS provider failed')
-  );
-
-  await expect(
-    capturedHandler(EXCHANGES.AI)({
-      eventId: 'a14ccdf3-af66-48be-b051-1eedfc17d1a6',
+    await capturedHandler(EXCHANGES.AI)({
+      eventId: '914ccdf3-af66-48be-b051-1eedfc17d1a6',
       occurredAt: '2024-01-01T00:00:00Z',
       userId: 'afdaad18-1241-47c8-a633-f912fa3f9d03',
       sessionId: null,
       crisisLevel: 5,
       timestamp: '2024-01-01T00:00:00Z',
-    })
-  ).rejects.toThrow('1 crisis notification channel(s) failed');
+    });
 
-  expect(mocks.sendEmail).toHaveBeenCalled();
-});
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
+    expect(mocks.sendSms).not.toHaveBeenCalled();
+    expect(mocks.prisma.crisis_deliveries.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('attempts email even when SMS delivery fails', async () => {
+    mocks.sendSms.mockRejectedValueOnce(new Error('SMS provider failed'));
+
+    await expect(
+      capturedHandler(EXCHANGES.AI)({
+        eventId: 'a14ccdf3-af66-48be-b051-1eedfc17d1a6',
+        occurredAt: '2024-01-01T00:00:00Z',
+        userId: 'afdaad18-1241-47c8-a633-f912fa3f9d03',
+        sessionId: null,
+        crisisLevel: 5,
+        timestamp: '2024-01-01T00:00:00Z',
+      })
+    ).rejects.toThrow('1 crisis notification channel(s) failed');
+
+    expect(mocks.sendEmail).toHaveBeenCalled();
+  });
 });

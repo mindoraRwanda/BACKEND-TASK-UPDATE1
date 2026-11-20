@@ -83,7 +83,8 @@ export async function sendSms(
   body: string,
   phoneNumber: string | null,
   eventType = 'unknown'
-): Promise<'delivered' | 'skipped'> {  console.log(`[sms] sendSms → user=${to}`);
+): Promise<'delivered' | 'skipped'> {
+  console.log(`[sms] sendSms → user=${to}`);
 
   // SMS disabled by default — planned for Mindora V4.
   // Set SMS_ENABLED=true in .env and configure Africa's Talking credentials to enable.
@@ -98,7 +99,8 @@ export async function sendSms(
       status: 'skipped',
       failureReason: 'SMS disabled — planned for V4',
     });
-return 'skipped';  }
+    return 'skipped';
+  }
 
   if (!smsClient) {
     console.warn(
@@ -130,19 +132,20 @@ return 'skipped';  }
   const result = await smsClient.send({ to: [phone], message: body });
   const recipient = result.SMSMessageData.Recipients[0];
 
-if (!recipient) {
-  await logNotification({
-    userId: to,
-    eventType,
-    channel: 'sms',
-    status: 'failed',
-    failureReason: 'Africa’s Talking returned no recipient result',
-  });
+  if (!recipient) {
+    await logNotification({
+      userId: to,
+      eventType,
+      channel: 'sms',
+      status: 'failed',
+      failureReason: 'Africa’s Talking returned no recipient result',
+    });
 
-  throw new Error('Africa’s Talking returned no recipient result');
-}
+    throw new Error('Africa’s Talking returned no recipient result');
+  }
 
-if (AT_SUCCESS_CODES.has(recipient.statusCode)) {    console.log(
+  if (AT_SUCCESS_CODES.has(recipient.statusCode)) {
+    console.log(
       `[sms] SMS delivered → user=${to} phone=${phone} status=${recipient?.status ?? 'unknown'}`
     );
     await logNotification({

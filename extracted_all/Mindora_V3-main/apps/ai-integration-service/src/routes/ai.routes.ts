@@ -64,28 +64,28 @@ router.post(
     const crisisLevel = await runPreFilter(message, userId);
 
     // Level 5 — immediate escalation; AI is never called under any circumstances
-   if (crisisLevel === 5) {
-  // INTENTIONAL fire-and-forget: never delay the patient's safety response.
-  publishCrisisEvent(
-    userId ?? 'unknown',
-    crisisLevel,
-    resolvedSessionId
-  ).catch((err) => {
-    console.error(
-      '[pre-filter] Failed to publish crisis event to RabbitMQ:',
-      err
-    );
-  });
+    if (crisisLevel === 5) {
+      // INTENTIONAL fire-and-forget: never delay the patient's safety response.
+      publishCrisisEvent(
+        userId ?? 'unknown',
+        crisisLevel,
+        resolvedSessionId
+      ).catch((err) => {
+        console.error(
+          '[pre-filter] Failed to publish crisis event to RabbitMQ:',
+          err
+        );
+      });
 
-  res.status(200).json({
-    response:
-      "I'm concerned about your safety right now. If you are in immediate danger, call Rwanda's emergency number 112 or go to the nearest hospital. You can also contact Umutima Counselling Centre at +250 788 386 225. Please reach out to someone you trust and try not to stay alone. You are not alone.",
-    crisisLevel: 5,
-    sessionId: resolvedSessionId,
-  });
+      res.status(200).json({
+        response:
+          "I'm concerned about your safety right now. If you are in immediate danger, call Rwanda's emergency number 112 or go to the nearest hospital. You can also contact Umutima Counselling Centre at +250 788 386 225. Please reach out to someone you trust and try not to stay alone. You are not alone.",
+        crisisLevel: 5,
+        sessionId: resolvedSessionId,
+      });
 
-  return;
-}
+      return;
+    }
 
     // TODO[clinical-review]: Levels 3 and 4 currently set inputFlagged and continue
     // to the AI call. A formal escalation path for these levels — specifically whether

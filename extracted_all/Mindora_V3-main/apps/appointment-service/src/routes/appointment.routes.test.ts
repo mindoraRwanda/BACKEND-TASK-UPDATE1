@@ -216,9 +216,7 @@ describe('POST /', () => {
         $queryRaw: vi.fn().mockResolvedValue([]),
         therapistSchedule: {
           findUnique: vi.fn().mockResolvedValue({
-            workingHours: [
-              { dayOfWeek: 3, startMinute: 540, endMinute: 1020 },
-            ],
+            workingHours: [{ dayOfWeek: 3, startMinute: 540, endMinute: 1020 }],
             timeOff: [],
           }),
         },
@@ -253,9 +251,7 @@ describe('POST /', () => {
         $queryRaw: vi.fn().mockResolvedValue([{ id: 'existing' }]),
         therapistSchedule: {
           findUnique: vi.fn().mockResolvedValue({
-            workingHours: [
-              { dayOfWeek: 3, startMinute: 540, endMinute: 1020 },
-            ],
+            workingHours: [{ dayOfWeek: 3, startMinute: 540, endMinute: 1020 }],
             timeOff: [],
           }),
         },
