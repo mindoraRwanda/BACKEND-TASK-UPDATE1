@@ -22,13 +22,12 @@ import { Router } from 'express';
 import {
   defaultAvailabilityRange,
   filterAvailableSlots,
-  generateConfiguredSlots,
+  generateCandidateSlots,
+  generateCandidateSlotsFromWorkingHours,
 } from '../lib/availability.js';
 import {
-  PastAppointmentError,
   bookAppointmentWithLock,
   isSlotConflictError,
-  SlotUnavailableError,
 } from '../lib/book-appointment.js';
 import { publishAppointmentEvent } from '../lib/publish-appointment-event.js';
 import { serializeAppointment } from '../lib/serialize-appointment.js';
@@ -120,12 +119,17 @@ appointmentRouter.get(
       }),
     ]);
 
-    // Therapists must configure working hours before they become bookable.
-    const candidates = generateConfiguredSlots(
-      from,
-      to,
-      schedule?.workingHours
-    );
+    // A therapist with no configured schedule (or an empty working-hours
+    // list) falls back to the original fixed 9am-5pm-UTC default, so
+    // approval doesn't leave them unbookable until they set this up.
+    const candidates =
+      schedule && schedule.workingHours.length > 0
+        ? generateCandidateSlotsFromWorkingHours(
+            from,
+            to,
+            schedule.workingHours
+          )
+        : generateCandidateSlots(from, to);
 
     const blocked = [
       ...bookedAppointments,
@@ -185,14 +189,6 @@ appointmentRouter.post(
     } catch (error) {
       if (isSlotConflictError(error)) {
         res.status(409).json({ message: 'Slot already booked' });
-        return;
-      }
-      if (error instanceof PastAppointmentError) {
-        res.status(400).json({ message: error.message });
-        return;
-      }
-      if (error instanceof SlotUnavailableError) {
-        res.status(409).json({ message: error.message });
         return;
       }
       throw error;
@@ -1020,6 +1016,51 @@ appointmentRouter.get(
         pending: Number(r.pending),
         confirmed: Number(r.confirmed),
       })),
+    });
+  })
+);
+
+// INTERNAL SERVICE ENDPOINT — paginated appointment register for Admin Service.
+// Only the SERVICE role can call this endpoint; end-user admin JWTs are never
+// accepted directly by the appointment database service.
+appointmentRouter.get(
+  '/internal/appointments/list',
+  authenticatedRouteLimiter,
+  verifyJwt,
+  asyncHandler(async (req, res) => {
+    const authReq = req as AuthenticatedRequest;
+    if (authReq.user?.role !== 'SERVICE') {
+      res.status(403).json({ message: 'Forbidden' });
+      return;
+    }
+
+    const parsed = appointmentListQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({
+        message: 'Validation failed',
+        errors: parsed.error.flatten().fieldErrors,
+      });
+      return;
+    }
+
+    const { page, limit, status } = parsed.data;
+    const where: Prisma.AppointmentWhereInput = status ? { status } : {};
+    const skip = (page - 1) * limit;
+    const [appointments, total] = await Promise.all([
+      prisma.appointment.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { slotStart: 'desc' },
+      }),
+      prisma.appointment.count({ where }),
+    ]);
+
+    res.status(200).json({
+      appointments: appointments.map(serializeAppointment),
+      total,
+      page,
+      limit,
     });
   })
 );

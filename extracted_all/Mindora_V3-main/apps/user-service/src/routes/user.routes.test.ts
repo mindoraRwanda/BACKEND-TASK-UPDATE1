@@ -7,6 +7,8 @@ vi.hoisted(() => {
   process.env.JWT_SECRET = 'mindora-dev-jwt-secret-change-in-production';
   process.env.JWT_ISSUER = 'mindora-auth';
   process.env.NODE_ENV = 'test';
+  process.env.THERAPIST_CARE_PLAN_ENCRYPTION_KEY =
+    'unit-test-care-plan-encryption-key-32-characters';
 });
 
 vi.mock('ioredis', () => {
@@ -24,6 +26,10 @@ vi.mock('ioredis', () => {
   return { default: Redis, Redis };
 });
 
+const mockCarePlanCreate = vi.fn();
+const mockCarePlanFindMany = vi.fn();
+const mockCarePlanFindUnique = vi.fn();
+const mockCarePlanUpdate = vi.fn();
 const mockPatientFindUnique = vi.fn();
 const mockPatientUpdate = vi.fn();
 const mockTherapistFindUnique = vi.fn();
@@ -37,6 +43,12 @@ const mockHttpGet = vi.fn();
 
 vi.mock('../lib/prisma.js', () => ({
   prisma: {
+    therapistCarePlan: {
+      create: (...args: unknown[]) => mockCarePlanCreate(...args),
+      findMany: (...args: unknown[]) => mockCarePlanFindMany(...args),
+      findUnique: (...args: unknown[]) => mockCarePlanFindUnique(...args),
+      update: (...args: unknown[]) => mockCarePlanUpdate(...args),
+    },
     patientProfile: {
       findUnique: (...args: unknown[]) => mockPatientFindUnique(...args),
       update: (...args: unknown[]) => mockPatientUpdate(...args),
@@ -70,10 +82,10 @@ vi.mock('@mindora/auth-middleware', async (importOriginal) => {
 
 import { createApp } from '../app.js';
 
-function patientToken() {
+function patientToken(userId = 'patient-1') {
   return jwt.sign(
     {
-      sub: 'patient-1',
+      sub: userId,
       email: 'patient@example.com',
       role: 'PATIENT',
     },
@@ -83,6 +95,14 @@ function patientToken() {
       issuer: process.env.JWT_ISSUER,
       jwtid: randomUUID(),
     }
+  );
+}
+
+function therapistToken() {
+  return jwt.sign(
+    { sub: 'therapist-1', email: 'therapist@example.com', role: 'THERAPIST' },
+    process.env.JWT_SECRET!,
+    { expiresIn: '15m', issuer: process.env.JWT_ISSUER, jwtid: randomUUID() }
   );
 }
 
@@ -101,6 +121,137 @@ function serviceToken() {
     }
   );
 }
+
+describe('Therapist care plans', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsBlacklisted.mockResolvedValue(false);
+  });
+
+  it('creates an encrypted draft only for a therapist with an appointment relationship', async () => {
+    mockHttpGet.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: { hasRelationship: true },
+    });
+    mockCarePlanCreate.mockImplementation(
+      async ({ data }: { data: Record<string, unknown> }) => ({
+        id: 'plan-1',
+        ...data,
+        patientAcknowledgedAt: null,
+        createdAt: new Date('2026-11-10T10:00:00.000Z'),
+        updatedAt: new Date('2026-11-10T10:00:00.000Z'),
+      })
+    );
+
+    const app = createApp();
+    const response = await request(app)
+      .post('/care-plans')
+      .set('Authorization', `Bearer ${therapistToken()}`)
+      .send({
+        patientId: '11111111-1111-4111-8111-111111111111',
+        title: 'Stress management goals',
+        goals: ['Build a regular sleep routine'],
+        milestones: [
+          {
+            title: 'Review sleep routine',
+            dueDate: '2026-11-20T00:00:00.000Z',
+          },
+        ],
+        reviewDate: '2026-11-30T00:00:00.000Z',
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.carePlan).toMatchObject({
+      id: 'plan-1',
+      status: 'DRAFT',
+      title: 'Stress management goals',
+      goals: ['Build a regular sleep routine'],
+    });
+    const stored = mockCarePlanCreate.mock.calls[0][0].data;
+    expect(stored.encryptedPayload).not.toContain('Stress management goals');
+    expect(stored.therapistId).toBe('therapist-1');
+    expect(mockHttpGet).toHaveBeenCalled();
+  });
+
+  it('does not create a care plan without a verified therapist-patient relationship', async () => {
+    mockHttpGet.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: { hasRelationship: false },
+    });
+    const app = createApp();
+    const response = await request(app)
+      .post('/care-plans')
+      .set('Authorization', `Bearer ${therapistToken()}`)
+      .send({
+        patientId: '11111111-1111-4111-8111-111111111111',
+        title: 'Goals',
+        goals: ['Goal one'],
+      });
+
+    expect(response.status).toBe(403);
+    expect(mockCarePlanCreate).not.toHaveBeenCalled();
+  });
+
+  it('allows the owning patient to acknowledge a saved care-plan draft', async () => {
+    const patientId = '11111111-1111-4111-8111-111111111111';
+    const createdAt = new Date('2026-11-10T10:00:00.000Z');
+    mockHttpGet.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: { hasRelationship: true },
+    });
+    mockCarePlanCreate.mockImplementation(
+      async ({ data }: { data: Record<string, unknown> }) => ({
+        id: 'plan-1',
+        ...data,
+        patientAcknowledgedAt: null,
+        createdAt,
+        updatedAt: createdAt,
+      })
+    );
+
+    const app = createApp();
+    const created = await request(app)
+      .post('/care-plans')
+      .set('Authorization', `Bearer ${therapistToken()}`)
+      .send({
+        patientId,
+        title: 'Wellbeing goals',
+        goals: ['Build a regular routine'],
+        milestones: [],
+      });
+    expect(created.status).toBe(201);
+
+    const stored = mockCarePlanCreate.mock.calls[0][0].data;
+    mockCarePlanFindUnique.mockResolvedValue({
+      id: 'plan-1',
+      ...stored,
+      status: 'DRAFT',
+      patientAcknowledgedAt: null,
+      createdAt,
+      updatedAt: createdAt,
+    });
+    mockCarePlanUpdate.mockImplementation(
+      async ({ data }: { data: Record<string, unknown> }) => ({
+        id: 'plan-1',
+        ...stored,
+        ...data,
+        createdAt,
+        updatedAt: new Date('2026-11-10T10:01:00.000Z'),
+      })
+    );
+
+    const response = await request(app)
+      .post('/care-plans/plan-1/acknowledge')
+      .set('Authorization', `Bearer ${patientToken(patientId)}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.carePlan.status).toBe('ACTIVE');
+    expect(response.body.carePlan.patientAcknowledgedAt).toBeTruthy();
+  });
+});
 
 describe('GET /me', () => {
   beforeEach(() => {

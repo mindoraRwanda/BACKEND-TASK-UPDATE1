@@ -61,16 +61,16 @@ describe('chatWithBot', () => {
         expect((init?.headers as Record<string, string>).Authorization).toBe(
           'Bearer session-token'
         );
-        return jsonResponse({ id: 'conversation-1' });
+        return jsonResponse({ id: 1 });
       })
       .mockImplementationOnce(async (url, init) => {
         expect(url).toBe('https://chatbot.example.test/auth/messages');
         expect(JSON.parse(init?.body as string)).toEqual({
-          conversation_id: 'conversation-1',
+          conversation_id: 1,
           content: 'hello',
         });
         return jsonResponse({
-          id: 'msg-1',
+          id: 2,
           sender: 'bot',
           content: 'hi there',
           timestamp: '2026-09-06T00:00:00.000Z',
@@ -84,6 +84,7 @@ describe('chatWithBot', () => {
     );
 
     expect(result.content).toBe('hi there');
+    expect(result.id).toBe('2');
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(mockUpsert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -92,7 +93,7 @@ describe('chatWithBot', () => {
           chatbot_user_id: 'chatbot-user-1',
           chatbot_email: 'patient@example.com',
           access_token: 'session-token',
-          conversation_id: 'conversation-1',
+          conversation_id: '1',
         }),
       })
     );
@@ -101,7 +102,7 @@ describe('chatWithBot', () => {
   it('reuses a cached, still-fresh token without calling /integration/session again', async () => {
     mockFindUnique.mockResolvedValueOnce({
       access_token: 'cached-token',
-      conversation_id: 'conversation-1',
+      conversation_id: '1',
       token_expires_at: new Date(Date.now() + 10 * 60 * 1000),
     });
 
@@ -134,7 +135,7 @@ describe('chatWithBot', () => {
   it('re-requests a session when the cached token has expired', async () => {
     mockFindUnique.mockResolvedValueOnce({
       access_token: 'stale-token',
-      conversation_id: 'conversation-1',
+      conversation_id: '1',
       token_expires_at: new Date(Date.now() - 1000),
     });
     mockUpsert.mockResolvedValueOnce({});
@@ -172,7 +173,7 @@ describe('chatWithBot', () => {
     // Existing conversation id is reused rather than creating a new one.
     expect(mockUpsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        create: expect.objectContaining({ conversation_id: 'conversation-1' }),
+        create: expect.objectContaining({ conversation_id: '1' }),
       })
     );
   });
@@ -181,11 +182,11 @@ describe('chatWithBot', () => {
     mockFindUnique
       .mockResolvedValueOnce({
         access_token: 'cached-token',
-        conversation_id: 'conversation-1',
+        conversation_id: 1,
         token_expires_at: new Date(Date.now() + 10 * 60 * 1000),
       })
       .mockResolvedValueOnce({
-        conversation_id: 'conversation-1',
+        conversation_id: '1',
       });
     mockUpsert.mockResolvedValueOnce({});
 

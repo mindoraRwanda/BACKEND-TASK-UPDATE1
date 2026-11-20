@@ -6,7 +6,12 @@ import {
 } from '@mindora/validation';
 import { authenticate, requireRole } from '@mindora/auth-middleware';
 import type { AuthenticatedRequest } from '@mindora/auth-middleware';
-import { CommunityGroup, Post, Comment } from '../models/index.js';
+import {
+  CommunityGroup,
+  CommunityMembership,
+  Post,
+  Comment,
+} from '../models/index.js';
 import type { IPost } from '../models/Post.js';
 import mongoose from 'mongoose';
 import { encryptUserId, decryptUserId } from '../utils/encryption.js';
@@ -225,6 +230,125 @@ router.get(
 );
 
 /**
+ * Join the authenticated user's community membership. The compound unique
+ * index makes repeated requests idempotent and prevents memberCount inflation.
+ */
+router.post(
+  '/groups/:id/join',
+  authenticatedRouteLimiter,
+  authenticate,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const groupId = req.params.id as string;
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    if (!mongoose.Types.ObjectId.isValid(groupId)) {
+      return res.status(400).json({ error: 'Invalid group ID' });
+    }
+
+    const group =
+      await CommunityGroup.findById(groupId).select('_id memberCount');
+    if (!group)
+      return res.status(404).json({ error: 'Community group not found' });
+
+    let inserted = false;
+    try {
+      const result = await CommunityMembership.updateOne(
+        { groupId: group._id, userId },
+        { $setOnInsert: { groupId: group._id, userId } },
+        { upsert: true }
+      );
+      inserted = result.upsertedCount === 1;
+    } catch (error) {
+      const mongoError = error as { code?: number };
+      if (mongoError.code !== 11000) throw error;
+    }
+
+    if (inserted) {
+      await CommunityGroup.updateOne(
+        { _id: group._id },
+        { $inc: { memberCount: 1 } }
+      );
+    }
+    const current = await CommunityGroup.findById(group._id).select(
+      'memberCount'
+    );
+    return res.status(200).json({
+      joined: true,
+      memberCount: current?.memberCount ?? group.memberCount,
+    });
+  })
+);
+
+/**
+ * Leave a community. The membership delete determines whether the count is
+ * decremented, so repeated leave requests are also idempotent.
+ */
+router.delete(
+  '/groups/:id/join',
+  authenticatedRouteLimiter,
+  authenticate,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const groupId = req.params.id as string;
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    if (!mongoose.Types.ObjectId.isValid(groupId)) {
+      return res.status(400).json({ error: 'Invalid group ID' });
+    }
+
+    const group =
+      await CommunityGroup.findById(groupId).select('_id memberCount');
+    if (!group)
+      return res.status(404).json({ error: 'Community group not found' });
+
+    const removed = await CommunityMembership.deleteOne({
+      groupId: group._id,
+      userId,
+    });
+    if (removed.deletedCount > 0) {
+      await CommunityGroup.updateOne(
+        { _id: group._id, memberCount: { $gt: 0 } },
+        { $inc: { memberCount: -1 } }
+      );
+    }
+    const current = await CommunityGroup.findById(group._id).select(
+      'memberCount'
+    );
+    return res.status(200).json({
+      joined: false,
+      memberCount: current?.memberCount ?? group.memberCount,
+    });
+  })
+);
+
+/** Return whether the authenticated user is a member of a group. */
+router.get(
+  '/groups/:id/membership',
+  authenticatedRouteLimiter,
+  authenticate,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const groupId = req.params.id as string;
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    if (!mongoose.Types.ObjectId.isValid(groupId)) {
+      return res.status(400).json({ error: 'Invalid group ID' });
+    }
+
+    const group =
+      await CommunityGroup.findById(groupId).select('_id memberCount');
+    if (!group)
+      return res.status(404).json({ error: 'Community group not found' });
+    const membership = await CommunityMembership.exists({
+      groupId: group._id,
+      userId,
+    });
+    return res.status(200).json({
+      joined: membership !== null,
+      memberCount: group.memberCount,
+    });
+  })
+);
+
+/**
  * @swagger
  * /api/v1/community/groups/{id}/posts:
  *   post:
@@ -313,6 +437,16 @@ router.post(
 
     if (!userId) {
       return res.status(401).json({ error: 'User ID not found in token' });
+    }
+
+    const membership = await CommunityMembership.exists({
+      groupId: group._id,
+      userId,
+    });
+    if (!membership) {
+      return res
+        .status(403)
+        .json({ error: 'Join this community before creating a post' });
     }
 
     const encryptedAuthorId = encryptUserId(userId);

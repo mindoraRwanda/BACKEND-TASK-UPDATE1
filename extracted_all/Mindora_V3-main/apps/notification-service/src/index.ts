@@ -5,6 +5,7 @@ import { startConsumers, SUBSCRIBED_EXCHANGES } from './consumers.js';
 import { initFirebase } from './fcm.js';
 import { initResend } from './email.js';
 import { initSms } from './sms.js';
+import { initVoice } from './voice.js';
 import { setupRetryInfrastructure } from './retry.js';
 
 const SERVICE_NAME = 'notification-service';
@@ -14,6 +15,7 @@ async function main(): Promise<void> {
   initFirebase();
   initResend();
   initSms();
+  initVoice();
 
   await connect();
   console.log('✓ RabbitMQ connection established');

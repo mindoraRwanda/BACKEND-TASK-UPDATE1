@@ -9,6 +9,7 @@ import type { APPOINTMENT_ROUTING_KEYS } from './constants.js';
 
 export const APPOINTMENT_SESSION_TYPES = [
   'VIDEO',
+  'AUDIO',
   'IN_PERSON',
   'CHAT',
 ] as const;

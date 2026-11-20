@@ -378,7 +378,7 @@ components:
 
     SessionType:
       type: string
-      enum: [VIDEO, IN_PERSON, CHAT]
+      enum: [VIDEO, AUDIO, IN_PERSON, CHAT]
 
     AvailabilitySlot:
       type: object
