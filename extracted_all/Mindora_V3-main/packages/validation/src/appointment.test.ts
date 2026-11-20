@@ -8,8 +8,8 @@ describe('bookAppointmentSchema session types', () => {
     slotEnd: '2026-11-25T10:00:00.000Z',
   };
 
-  it.each(['VIDEO', 'AUDIO', 'IN_PERSON', 'CHAT'] as const)(
-    'accepts %s',
+  it.each(['VIDEO', 'AUDIO'] as const)(
+    'accepts current product session type %s',
     (sessionType) => {
       expect(
         bookAppointmentSchema.safeParse({ ...base, sessionType }).success
@@ -17,9 +17,12 @@ describe('bookAppointmentSchema session types', () => {
     }
   );
 
-  it('rejects unsupported session types', () => {
-    expect(
-      bookAppointmentSchema.safeParse({ ...base, sessionType: 'PHONE' }).success
-    ).toBe(false);
-  });
+  it.each(['IN_PERSON', 'CHAT', 'PHONE'] as const)(
+    'rejects unsupported new booking type %s while preserving legacy database values',
+    (sessionType) => {
+      expect(
+        bookAppointmentSchema.safeParse({ ...base, sessionType }).success
+      ).toBe(false);
+    }
+  );
 });
