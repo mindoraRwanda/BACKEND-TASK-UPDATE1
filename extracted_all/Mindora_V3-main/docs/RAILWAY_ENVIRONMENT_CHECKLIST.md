@@ -127,3 +127,12 @@ times with the previous failed deployment logs before taking any write action.
 This audit is read-only. Do not run `prisma migrate resolve`, edit
 `_prisma_migrations`, or rerun `prisma migrate deploy` until the
 partial-application state is understood and a database backup is confirmed.
+
+## Destructive migration review
+
+The AI integration history contains
+`apps/ai-integration-service/prisma/migrations/20260906120000_drop_chatbot_password/migration.sql`,
+which drops the `chatbot_password` column. Before the AI database migration is
+applied, confirm the column no longer contains credentials needed by the live
+chatbot integration and that a backup exists. Do not manually run this SQL or
+mark the migration applied until that review is complete.
