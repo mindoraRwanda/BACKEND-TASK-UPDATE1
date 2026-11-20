@@ -99,3 +99,23 @@ Do not rotate or replace the client secret unless MINDORA has access to the corr
 ## Migration and deployment warning
 
 Do not deploy the new backend source or rerun Prisma migrations until each of the seven production databases has been checked for its `_prisma_migrations` state. The prior all-database pre-deploy loop failed and may have applied earlier schemas before stopping. Back up each database and reconcile the applied migration history first. No production migration is run by this checklist.
+
+## Read-only production migration audit
+
+Before retrying the Railway pre-deploy command, connect to each of the seven production databases individually and run this read-only query:
+
+```sql
+SELECT
+  migration_name,
+  started_at,
+  finished_at,
+  rolled_back_at,
+  applied_steps_count
+FROM "_prisma_migrations"
+ORDER BY started_at DESC
+LIMIT 30;
+```
+
+Collect the result for `AUTH_DATABASE_URL`, `USER_DATABASE_URL`, `APPOINTMENT_DATABASE_URL`, `MOOD_DATABASE_URL`, `ADMIN_DATABASE_URL`, `AI_DATABASE_URL` and `NOTIFICATION_DATABASE_URL`. A row with `finished_at IS NULL` and `rolled_back_at IS NULL` needs investigation; do not manually mark it applied or delete it. Compare the migration names and completion times with the previous failed deployment logs before taking any write action.
+
+This audit is read-only. Do not run `prisma migrate resolve`, edit `_prisma_migrations`, or rerun `prisma migrate deploy` until the partial-application state is understood and a database backup is confirmed.
