@@ -7,6 +7,7 @@ import helmet from 'helmet';
 import swaggerUi from 'swagger-ui-express';
 import { authenticate } from '@mindora/auth-middleware';
 import aiRouter from './routes/ai.routes.js';
+import chatbotCrisisWebhookRouter from './routes/chatbot-crisis.routes.js';
 import { openApiSpec } from './docs/openapi.js';
 import { authenticatedRouteLimiter } from './middleware/rate-limit.js';
 
@@ -72,6 +73,10 @@ app.get(GATEWAY_HEALTH_PATH, (_req: Request, res: Response) => {
 // reach a route handler at all, so it needs its own protection rather than
 // inheriting whatever a specific route below happens to apply.
 app.use(authenticatedRouteLimiter);
+
+// Private service-to-service webhook: authenticated with a dedicated shared token,
+// not an end-user JWT. It must be mounted before the global JWT middleware.
+app.use('/api/v1/ai', chatbotCrisisWebhookRouter);
 
 // JWT authentication is required on every other endpoint in this service.
 app.use(authenticate as express.RequestHandler);

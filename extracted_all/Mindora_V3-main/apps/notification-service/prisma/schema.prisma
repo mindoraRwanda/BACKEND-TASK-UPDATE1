@@ -13,8 +13,8 @@ model notification_logs {
   id            String    @id @default(uuid())
   userId        String
   eventType     String
-  channel       String // "push" | "email" | "sms"
-  status        String // "delivered" | "failed" | "skipped"
+  channel       String // "push" | "email" | "sms" | "voice"
+  status        String // "delivered" | "accepted" | "processing" | "failed" | "skipped"
   attempts      Int       @default(1)
   deliveredAt   DateTime?
   failureReason String?
@@ -24,25 +24,13 @@ model notification_logs {
   // admin-only delivery log already reads (GET /api/v1/notifications/logs)
   // — one table serving both views, not a second notifications system.
   readAt        DateTime?
+  // Durable per-event/per-channel/per-recipient idempotency key for retries.
+  // NULL for legacy and non-escalation notification rows.
+  dedupeKey     String?   @unique
 
   @@index([userId])
   @@index([eventType])
   @@index([status])
   @@index([createdAt])
   @@index([userId, readAt])
-}
-model crisis_deliveries {
-  id            String    @id @default(uuid())
-  eventId       String
-  channel       String
-  recipient     String
-  status        String    @default("pending")
-  attempts      Int       @default(0)
-  failureReason String?
-  deliveredAt   DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
-  @@unique([eventId, channel])
-  @@index([status])
 }

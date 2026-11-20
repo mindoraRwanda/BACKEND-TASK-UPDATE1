@@ -167,6 +167,68 @@ describe('GET /users', () => {
   });
 });
 
+describe('GET /appointments', () => {
+  it('returns the paginated register through the SERVICE-only Appointment Service route', async () => {
+    mockHttpGet.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: {
+        appointments: [
+          {
+            id: 'appointment-1',
+            patientId: 'patient-1',
+            therapistId: 'therapist-1',
+            slotStart: '2026-11-10T08:00:00.000Z',
+            slotEnd: '2026-11-10T09:00:00.000Z',
+            sessionType: 'VIDEO',
+            status: 'CONFIRMED',
+            createdAt: '2026-11-01T08:00:00.000Z',
+            updatedAt: '2026-11-01T08:00:00.000Z',
+          },
+        ],
+        total: 1,
+        page: 1,
+        limit: 20,
+      },
+    });
+
+    const app = createApp();
+    const response = await request(app)
+      .get('/appointments?status=CONFIRMED&page=1&limit=20')
+      .set('Authorization', `Bearer ${adminToken()}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.total).toBe(1);
+    expect(response.body.appointments[0].id).toBe('appointment-1');
+    expect(mockHttpGet).toHaveBeenCalledWith(
+      'http://localhost:8000',
+      '/internal/appointments/list?page=1&limit=20&status=CONFIRMED',
+      { headers: { Authorization: 'Bearer test-internal-service-token' } }
+    );
+  });
+
+  it('returns 400 for invalid status without calling the Appointment Service', async () => {
+    const app = createApp();
+    const response = await request(app)
+      .get('/appointments?status=NOT_A_STATUS')
+      .set('Authorization', `Bearer ${adminToken()}`);
+
+    expect(response.status).toBe(400);
+    expect(mockHttpGet).not.toHaveBeenCalled();
+  });
+
+  it('returns 503 if Appointment Service is unavailable', async () => {
+    mockHttpGet.mockResolvedValue({ ok: false, status: 503, data: null });
+
+    const app = createApp();
+    const response = await request(app)
+      .get('/appointments')
+      .set('Authorization', `Bearer ${adminToken()}`);
+
+    expect(response.status).toBe(503);
+  });
+});
+
 describe('PUT /users/:id/suspend', () => {
   it('suspends the user and writes an audit log entry only after the downstream call succeeds', async () => {
     mockCallService.mockResolvedValue({

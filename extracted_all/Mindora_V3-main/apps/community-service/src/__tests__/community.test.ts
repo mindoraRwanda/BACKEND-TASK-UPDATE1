@@ -2,7 +2,12 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import supertest from 'supertest';
 import mongoose from 'mongoose';
 import app from '../app.js';
-import { CommunityGroup, Post, Report } from '../models/index.js';
+import {
+  CommunityGroup,
+  CommunityMembership,
+  Post,
+  Report,
+} from '../models/index.js';
 import { encryptUserId } from '../utils/encryption.js';
 
 const request = supertest(app);
@@ -57,6 +62,7 @@ beforeAll(async () => {
 // Clean the database before each test so tests don't affect each other
 beforeEach(async () => {
   await CommunityGroup.deleteMany({});
+  await CommunityMembership.deleteMany({});
   await Post.deleteMany({});
   await Report.deleteMany({});
 });
@@ -243,6 +249,84 @@ describe('GET /api/v1/community/groups', () => {
   });
 });
 
+// ─── Community Membership Tests ───────────────────────────────────────────
+
+describe('community membership', () => {
+  it('joins once and increments memberCount only once', async () => {
+    const group = await CommunityGroup.create({
+      name: 'Peer Support Circle',
+      description: 'A supportive community for shared learning',
+      category: 'GENERAL',
+      isAnonymous: false,
+      memberCount: 0,
+    });
+    const groupPath = '/api/v1/community/groups/' + group._id + '/join';
+    const first = await request
+      .post(groupPath)
+      .set('Authorization', authHeader);
+    const second = await request
+      .post(groupPath)
+      .set('Authorization', authHeader);
+    expect(first.status).toBe(200);
+    expect(first.body.joined).toBe(true);
+    expect(second.body.memberCount).toBe(1);
+    expect(
+      await CommunityMembership.countDocuments({ groupId: group._id })
+    ).toBe(1);
+    expect((await CommunityGroup.findById(group._id))?.memberCount).toBe(1);
+  });
+
+  it('leaves idempotently and decrements memberCount once', async () => {
+    const group = await CommunityGroup.create({
+      name: 'Stress Support Group',
+      description: 'A supportive community for stress management',
+      category: 'STRESS',
+      isAnonymous: false,
+      memberCount: 0,
+    });
+    const groupPath = '/api/v1/community/groups/' + group._id + '/join';
+    await request.post(groupPath).set('Authorization', authHeader);
+    const first = await request
+      .delete(groupPath)
+      .set('Authorization', authHeader);
+    const second = await request
+      .delete(groupPath)
+      .set('Authorization', authHeader);
+    expect(first.status).toBe(200);
+    expect(first.body.joined).toBe(false);
+    expect(second.body.memberCount).toBe(0);
+    expect(
+      await CommunityMembership.countDocuments({ groupId: group._id })
+    ).toBe(0);
+    expect((await CommunityGroup.findById(group._id))?.memberCount).toBe(0);
+  });
+
+  it('requires authentication and validates group ids', async () => {
+    const unauthenticated = await request.post(
+      '/api/v1/community/groups/invalid/join'
+    );
+    expect(unauthenticated.status).toBe(401);
+    const invalidId = await request
+      .post('/api/v1/community/groups/not-an-object-id/join')
+      .set('Authorization', authHeader);
+    expect(invalidId.status).toBe(400);
+  });
+
+  it('returns membership state for the authenticated user', async () => {
+    const group = await CommunityGroup.create({
+      name: 'Anxiety Support Group',
+      description: 'A supportive community for anxiety management',
+      category: 'ANXIETY',
+      isAnonymous: false,
+      memberCount: 0,
+    });
+    const response = await request
+      .get('/api/v1/community/groups/' + group._id + '/membership')
+      .set('Authorization', authHeader);
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ joined: false, memberCount: 0 });
+  });
+});
 // ─── Create Post Tests ─────────────────────────────────────────────────────
 
 describe('POST /api/v1/community/groups/:id/posts', () => {
@@ -258,6 +342,11 @@ describe('POST /api/v1/community/groups/:id/posts', () => {
       category: 'ANXIETY',
       isAnonymous: true,
       memberCount: 0,
+    });
+
+    await CommunityMembership.create({
+      groupId: group._id,
+      userId: 'test-user-123',
     });
 
     const response = await request
@@ -287,6 +376,11 @@ describe('POST /api/v1/community/groups/:id/posts', () => {
       memberCount: 0,
     });
 
+    await CommunityMembership.create({
+      groupId: group._id,
+      userId: 'test-user-123',
+    });
+
     const response = await request
       .post(`/api/v1/community/groups/${group._id}/posts`)
       .set('Authorization', authHeader)
@@ -300,6 +394,28 @@ describe('POST /api/v1/community/groups/:id/posts', () => {
     expect(response.body.author).not.toBeNull();
     expect(response.body.author.userId).toBe('test-user-123');
     expect(response.body.content.type).toBe('doc');
+  });
+
+  it('rejects post creation by a user who has not joined the group', async () => {
+    const group = await CommunityGroup.create({
+      name: 'Member-only Group',
+      description: 'A group requiring membership before posting',
+      category: 'GENERAL',
+      isAnonymous: false,
+      memberCount: 0,
+    });
+    const response = await request
+      .post(`/api/v1/community/groups/${group._id}/posts`)
+      .set('Authorization', authHeader)
+      .send({
+        content: tipTapContent('This post should be rejected.'),
+        isAnonymous: false,
+      });
+    expect(response.status).toBe(403);
+    expect(response.body.error).toBe(
+      'Join this community before creating a post'
+    );
+    expect(await Post.countDocuments({ communityId: group._id })).toBe(0);
   });
 
   it('returns 400 when content is a plain string instead of TipTap JSON', async () => {

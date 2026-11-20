@@ -8,7 +8,7 @@ COPY package.json package-lock.json turbo.json tsconfig.json tsconfig.base.json 
 COPY apps ./apps
 COPY packages ./packages
 
-RUN npm install
+RUN npm ci
 RUN npx turbo run build --filter=@mindora/messaging-service
 
 FROM node:24-alpine AS runtime

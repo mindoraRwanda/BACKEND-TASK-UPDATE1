@@ -1,0 +1,38 @@
+name: Refresh npm lockfile for security patch
+
+on:
+  push:
+    branches:
+      - fix/mongoose-security-2026
+    paths:
+      - package.json
+      - apps/messaging-service/package.json
+      - apps/user-service/package.json
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/mongoose-security-2026
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Regenerate lockfile without running install scripts
+        run: npm install --package-lock-only --ignore-scripts --no-audit
+      - name: Verify patched Mongoose versions
+        run: |
+          node -e "const p=require('./package-lock.json').packages; for (const k of Object.keys(p).filter(k=>k.endsWith('/node_modules/mongoose')||k==='node_modules/mongoose')) console.log(k,p[k].version)"
+      - name: Commit lockfile
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git diff --cached --quiet || git commit -m "chore: refresh lockfile for patched mongoose"
+          git push

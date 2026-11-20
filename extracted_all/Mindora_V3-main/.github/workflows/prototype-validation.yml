@@ -1,0 +1,161 @@
+# Validates the production backend branch and PR feature work.
+# Prettier also formats this workflow before the repository-wide format check.
+name: Prototype workflow validation
+
+on:
+  push:
+    branches:
+      - feat/prototype-production-workflows
+      - prototype-clinical-workspace-backend
+      - olivi
+  pull_request:
+    branches:
+      - olivi
+    paths:
+      - 'apps/user-service/**'
+      - 'apps/community-service/**'
+      - 'apps/appointment-service/**'
+      - 'apps/admin-service/**'
+      - 'packages/validation/**'
+      - '.github/workflows/prototype-validation.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prototype-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_ENV: test
+  DATABASE_URL: postgresql://mindora:mindora@localhost:5434/mindora
+  AUTH_DATABASE_URL: postgresql://mindora:mindora@localhost:5434/mindora_auth
+  USER_DATABASE_URL: postgresql://mindora:mindora@localhost:5434/mindora_user
+  APPOINTMENT_DATABASE_URL: postgresql://mindora:mindora@localhost:5434/mindora_appointment
+  MOOD_DATABASE_URL: postgresql://mindora:mindora@localhost:5434/mindora_mood
+  ADMIN_DATABASE_URL: postgresql://mindora:mindora@localhost:5434/mindora_admin
+  AI_DATABASE_URL: postgresql://mindora:mindora@localhost:5434/mindora_ai
+  NOTIFICATION_DATABASE_URL: postgresql://mindora:mindora@localhost:5434/mindora_notifications
+  REDIS_URL: redis://localhost:6379
+  MONGODB_URI: mongodb://localhost:27017/mindora
+  RABBITMQ_URL: amqp://mindora:mindora@localhost:5672
+  KONG_URL: http://localhost:8000
+  JWT_SECRET: ci-only-jwt-secret-not-for-production
+  REFRESH_SECRET: ci-only-refresh-secret-not-for-production
+  THERAPIST_CARE_PLAN_ENCRYPTION_KEY: ci-only-care-plan-encryption-key-not-for-production
+
+jobs:
+  quality:
+    name: Lint, format and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Audit production dependencies for high-severity CVEs
+        run: npm audit --audit-level=high --omit=dev --omit=optional
+      - name: Check out pull-request source branch for formatting
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          git fetch origin "${{ github.event.pull_request.head.ref }}"
+          git checkout -B "${{ github.event.pull_request.head.ref }}" "origin/${{ github.event.pull_request.head.ref }}"
+      - name: Canonical-format changed workflow files
+        run: |
+          npx prettier --write \
+            "apps/admin-service/src/routes/admin.routes.ts" \
+            "apps/community-service/src/__tests__/community.test.ts" \
+            "apps/community-service/src/routes/community.routes.ts" \
+            "apps/user-service/src/routes/user.routes.test.ts" \
+            "apps/user-service/src/routes/user.routes.ts" \
+            "packages/validation/src/care-plan.ts" \
+            "apps/user-service/src/routes/clinical-workspace.routes.ts" \
+            "apps/user-service/src/routes/clinical-workspace.routes.test.ts" \
+            "packages/validation/src/clinical-workspace.ts" \
+            ".github/workflows/prototype-validation.yml"
+          npx prisma format --schema apps/user-service/prisma/schema.prisma
+      - name: Upload canonical source
+        uses: actions/upload-artifact@v4
+        with:
+          name: mindora-backend-prettier-source
+          path: |
+            apps/admin-service/src/routes/admin.routes.ts
+            apps/community-service/src/__tests__/community.test.ts
+            apps/community-service/src/routes/community.routes.ts
+            apps/user-service/src/routes/user.routes.test.ts
+            apps/user-service/src/routes/user.routes.ts
+            packages/validation/src/care-plan.ts
+            apps/user-service/src/routes/clinical-workspace.routes.ts
+            apps/user-service/src/routes/clinical-workspace.routes.test.ts
+            packages/validation/src/clinical-workspace.ts
+            apps/user-service/prisma/schema.prisma
+          if-no-files-found: error
+      - name: Commit canonical formatting
+        if: |
+          (github.event_name == 'push' && github.ref == 'refs/heads/feat/prototype-production-workflows') ||
+          (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+        run: |
+          if [[ -n "$(git status --porcelain -- apps/admin-service/src/routes/admin.routes.ts apps/community-service/src apps/user-service/src packages/validation/src/clinical-workspace.ts packages/validation/src/care-plan.ts)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add apps/admin-service/src/routes/admin.routes.ts \
+              apps/community-service/src/__tests__/community.test.ts \
+              apps/community-service/src/routes/community.routes.ts \
+              apps/user-service/src/routes/user.routes.test.ts \
+              apps/user-service/src/routes/user.routes.ts \
+              apps/user-service/src/routes/clinical-workspace.routes.ts \
+              apps/user-service/src/routes/clinical-workspace.routes.test.ts \
+              apps/user-service/prisma/schema.prisma \
+              packages/validation/src/clinical-workspace.ts \
+              packages/validation/src/care-plan.ts
+            git commit -m "style: canonical format prototype backend workflows"
+            if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+              git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+            else
+              git push origin "HEAD:${GITHUB_REF_NAME}"
+            fi
+          fi
+      - name: Check formatting
+        run: npm run format:check
+      - name: Lint changed services and validation
+        run: npx turbo run lint --filter=@mindora/validation --filter=@mindora/user-service --filter=@mindora/appointment-service --filter=@mindora/community-service --filter=@mindora/admin-service
+      - name: Generate Prisma clients
+        run: |
+          for dir in apps/auth-service apps/user-service apps/appointment-service apps/mood-tracking-service apps/admin-service apps/ai-integration-service apps/notification-service; do
+            (cd "$dir" && npx prisma generate)
+          done
+      - name: Build changed services and dependencies
+        run: npx turbo run build --filter=@mindora/validation --filter=@mindora/user-service --filter=@mindora/appointment-service --filter=@mindora/community-service --filter=@mindora/admin-service
+
+
+  test:
+    name: Test live workflow APIs
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Start test infrastructure
+        run: docker compose up -d --wait postgres redis mongodb rabbitmq kong
+      - run: npm ci
+      - name: Create isolated service databases
+        run: |
+          for db in mindora_auth mindora_user mindora_appointment mindora_mood mindora_admin mindora_ai mindora_notifications; do
+            exists=$(docker exec mindora-postgres psql -U mindora -tAc "SELECT 1 FROM pg_database WHERE datname = '$db'")
+            if [ "$exists" != "1" ]; then
+              docker exec mindora-postgres psql -U mindora -c "CREATE DATABASE $db"
+            fi
+          done
+      - name: Generate Prisma clients and apply migrations
+        run: |
+          for dir in apps/auth-service apps/user-service apps/appointment-service apps/mood-tracking-service apps/admin-service apps/ai-integration-service apps/notification-service; do
+            (cd "$dir" && npx prisma generate && npx prisma migrate deploy)
+          done
+      - name: Run affected unit and integration tests
+        run: npx turbo run test --filter=@mindora/validation --filter=@mindora/user-service --filter=@mindora/appointment-service --filter=@mindora/community-service --filter=@mindora/admin-service

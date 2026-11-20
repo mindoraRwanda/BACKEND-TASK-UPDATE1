@@ -56,13 +56,37 @@ export async function publishToExchange(
   url?: string
 ): Promise<void> {
   const connection = await connect(url);
-  const channel = await connection.createChannel();
-  await channel.assertExchange(exchange, 'topic', { durable: true });
-  channel.publish(exchange, routingKey, Buffer.from(JSON.stringify(payload)), {
-    persistent: true,
-    contentType: 'application/json',
-  });
-  await channel.close();
+  const channel = await connection.createConfirmChannel();
+  try {
+    await channel.assertExchange(exchange, 'topic', { durable: true });
+    let returnedMessage: string | null = null;
+    // mandatory=true makes RabbitMQ return an event if no queue is bound to
+    // this routing key. Publisher confirms alone do not detect unroutable
+    // messages, which could otherwise make a password-reset request appear
+    // accepted while no notification consumer can ever receive it.
+    channel.on('return', (message) => {
+      returnedMessage =
+        message.fields.replyText || 'message was not routed to a queue';
+    });
+    channel.publish(
+      exchange,
+      routingKey,
+      Buffer.from(JSON.stringify(payload)),
+      {
+        persistent: true,
+        contentType: 'application/json',
+        mandatory: true,
+      }
+    );
+    await channel.waitForConfirms();
+    if (returnedMessage) {
+      throw new Error(
+        `RabbitMQ did not route event to a queue: ${returnedMessage}`
+      );
+    }
+  } finally {
+    await channel.close();
+  }
 }
 
 export async function subscribe(

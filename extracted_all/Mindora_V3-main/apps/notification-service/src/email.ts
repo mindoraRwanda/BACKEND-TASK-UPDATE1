@@ -3,19 +3,46 @@ import { logNotification } from './notificationLogger.js';
 
 let resend: Resend | null = null;
 
-// Resend sandbox sender — replace once a custom sending domain is verified.
-const FROM = 'Mindora <onboarding@resend.dev>';
+// Use a verified MINDORA sending domain in production. Resend's sandbox sender
+// is only suitable for development/testing and may restrict recipients.
+let fromAddress =
+  process.env.RESEND_FROM_EMAIL?.trim() || 'Mindora <onboarding@resend.dev>';
+
+function safeErrorCode(error: unknown): string {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'name' in error &&
+    typeof error.name === 'string'
+  )
+    return error.name;
+  return 'ProviderError';
+}
 
 export function initResend(): void {
-  const apiKey = process.env.RESEND_EMAIL_API_KEY;
+  const apiKey = process.env.RESEND_EMAIL_API_KEY?.trim();
+  const configuredFrom = process.env.RESEND_FROM_EMAIL?.trim();
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  if (
+    isProduction &&
+    (!apiKey ||
+      !configuredFrom ||
+      configuredFrom.includes('onboarding@resend.dev'))
+  ) {
+    throw new Error(
+      'Production email requires RESEND_EMAIL_API_KEY and a verified RESEND_FROM_EMAIL sender'
+    );
+  }
   if (!apiKey) {
     console.warn(
-      '[email] RESEND_EMAIL_API_KEY not set — email notifications disabled'
+      '[email] RESEND_EMAIL_API_KEY is not configured — email notifications are disabled'
     );
     return;
   }
+  fromAddress = configuredFrom || fromAddress;
   resend = new Resend(apiKey);
-  console.log('✓ Resend email client initialized');
+  console.log('[email] Resend email client initialized');
 }
 
 // Calls the same preferences endpoint for a display name, used to personalize
@@ -53,26 +80,33 @@ export async function sendEmail(
   subject: string,
   htmlBody: string
 ): Promise<boolean> {
-  console.log(`[email] sendEmail → to=${to} subject="${subject}"`);
+  console.log(
+    `[email] sendEmail requested (recipient redacted; subject="${subject}")`
+  );
 
   if (!resend) {
-    console.warn(`[email] Resend not initialized — skipping email to ${to}`);
+    console.warn('[email] Resend not initialized — email send skipped');
     return false;
   }
 
   const { error } = await resend.emails.send({
-    from: FROM,
+    from: fromAddress,
     to,
     subject,
     html: htmlBody,
   });
 
   if (error) {
-    console.error(`[email] Resend delivery failed for ${to}:`, error);
-    throw new Error(error.message);
+    console.error(
+      '[email] Resend provider request failed:',
+      safeErrorCode(error)
+    );
+    throw new Error('EMAIL_PROVIDER_SEND_FAILED');
   }
 
-  console.log(`[email] Email delivered → to=${to} subject="${subject}"`);
+  console.log(
+    '[email] Resend accepted the email request; final mailbox delivery is not confirmed'
+  );
   return true;
 }
 
@@ -104,17 +138,17 @@ export async function sendEmailToUser(
       userId,
       eventType,
       channel: 'email',
-      status: sent ? 'delivered' : 'skipped',
+      status: sent ? 'accepted' : 'skipped',
       failureReason: sent ? undefined : 'Resend client not initialized',
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const failureCode = safeErrorCode(err);
     await logNotification({
       userId,
       eventType,
       channel: 'email',
       status: 'failed',
-      failureReason: message,
+      failureReason: failureCode,
     });
     throw err;
   }
