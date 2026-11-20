@@ -7,7 +7,7 @@ const appointmentStatusSchema = z.enum([
   'COMPLETED',
 ]);
 
-const sessionTypeSchema = z.enum(['VIDEO', 'IN_PERSON', 'CHAT']);
+const sessionTypeSchema = z.enum(['VIDEO', 'AUDIO', 'IN_PERSON', 'CHAT']);
 
 export const availabilityQuerySchema = z.object({
   from: z.coerce.date().optional(),

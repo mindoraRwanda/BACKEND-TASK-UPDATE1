@@ -10,9 +10,9 @@ It subscribes to domain events and dispatches notifications through push (FCM), 
 
 | Exchange | Queue | Trigger | Channels |
 |----------|-------|---------|----------|
-| \`mindora.appointments\` | \`notification.appointments\` | Appointment booked | Push + Email to patient |
-| \`mindora.appointments\` | \`notification.appointments\` | Appointment confirmed | Push + Email to patient |
-| \`mindora.appointments\` | \`notification.appointments\` | Appointment cancelled | Push + Email to affected party |
+| \`mindora.appointments\` | \`notification.appointments\` | Appointment booked | Push + Email + SMS to patient |
+| \`mindora.appointments\` | \`notification.appointments\` | Appointment confirmed | Push + Email + SMS to patient |
+| \`mindora.appointments\` | \`notification.appointments\` | Appointment cancelled | Push + Email + SMS to affected party |
 | \`mindora.messages\` | \`notification.messages\` | Message received | Push preview to recipient |
 | \`mindora.community\` | \`notification.community\` | Reply posted | Push to post author |
 | \`mindora.mood\` | \`notification.mood\` | Mood logged | Logged only _(notification blocked — see TODOs)_ |

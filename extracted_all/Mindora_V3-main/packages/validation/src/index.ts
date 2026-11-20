@@ -1,4 +1,11 @@
 export {
+  carePlanContentSchema,
+  createCarePlanSchema,
+  updateCarePlanSchema,
+  type CreateCarePlanDto,
+  type UpdateCarePlanDto,
+} from './care-plan.js';
+export {
   forgotPasswordSchema,
   loginSchema,
   registerSchema,
@@ -96,3 +103,14 @@ export {
   type UpdateTherapistApplicationDto,
   type UploadDocumentTypeDto,
 } from './therapist-application.js';
+
+export {
+  createMedicationUpdateSchema,
+  createPrescriptionDraftSchema,
+  reviewMedicationUpdateSchema,
+  updatePrescriptionDraftSchema,
+  type CreateMedicationUpdateDto,
+  type CreatePrescriptionDraftDto,
+  type ReviewMedicationUpdateDto,
+  type UpdatePrescriptionDraftDto,
+} from './clinical-workspace.js';

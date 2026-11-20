@@ -1,3 +1,32 @@
+function resolveAppBaseUrl(): string {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const configured = process.env.APP_BASE_URL?.trim();
+  const value =
+    configured || (isProduction ? undefined : 'http://localhost:3000');
+  if (!value) {
+    throw new Error(
+      'APP_BASE_URL must be configured in production for password reset links'
+    );
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error('APP_BASE_URL must be a valid absolute URL');
+  }
+
+  if (
+    isProduction &&
+    (parsed.protocol !== 'https:' ||
+      ['localhost', '127.0.0.1'].includes(parsed.hostname))
+  ) {
+    throw new Error('APP_BASE_URL must be a public HTTPS URL in production');
+  }
+
+  return value.replace(/\/$/, '');
+}
+
 function requireEnv(name: string, fallback?: string): string {
   const value = process.env[name] ?? fallback;
   if (!value) {
@@ -25,7 +54,7 @@ export const config = {
   // for localhost, where cookies already ignore the port.
   cookieDomain: process.env.COOKIE_DOMAIN || undefined,
   isProduction: process.env.NODE_ENV === 'production',
-  appBaseUrl: process.env.APP_BASE_URL ?? 'http://localhost:3001',
+  appBaseUrl: resolveAppBaseUrl(),
   // Where the browser lands after a successful Google OAuth callback. The
   // frontend route there does no token parsing — it just waits on its own
   // mount-time bootstrap (POST /refresh) to pick up the refreshToken cookie

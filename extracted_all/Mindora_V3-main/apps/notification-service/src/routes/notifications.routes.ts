@@ -298,10 +298,10 @@ notificationsRouter.put(
  *         schema: { type: string, format: uuid }
  *       - in: query
  *         name: status
- *         schema: { type: string, enum: [delivered, failed, skipped] }
+ *         schema: { type: string, enum: [delivered, accepted, processing, failed, skipped] }
  *       - in: query
  *         name: channel
- *         schema: { type: string, enum: [push, email, sms] }
+ *         schema: { type: string, enum: [push, email, sms, voice] }
  *       - in: query
  *         name: eventType
  *         schema: { type: string }

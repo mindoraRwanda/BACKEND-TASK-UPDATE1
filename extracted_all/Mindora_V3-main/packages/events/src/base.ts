@@ -26,6 +26,7 @@ export const EXCHANGES = {
   AI: 'mindora.ai',
   COMMUNITY: 'mindora.community',
   THERAPIST_APPLICATIONS: 'mindora.therapist-applications',
+  AUTH: 'mindora.auth-events',
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];

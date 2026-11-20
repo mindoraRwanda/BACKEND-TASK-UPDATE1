@@ -8,6 +8,7 @@ import swaggerUi from 'swagger-ui-express';
 import { swaggerSpec } from './docs/swagger.js';
 import { healthRouteLimiter } from './middleware/rate-limit.js';
 import { notificationsRouter } from './routes/notifications.routes.js';
+import { voiceWebhooksRouter } from './routes/voice.routes.js';
 
 const SERVICE_NAME = 'notification-service';
 const GATEWAY_HEALTH_PATH = '/api/v1/notifications/health';
@@ -31,6 +32,7 @@ export function createApp() {
     })
   );
   app.use(express.json());
+  app.use(express.urlencoded({ extended: false }));
 
   app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
   app.get('/docs.json', (_req, res) => {
@@ -76,6 +78,7 @@ export function createApp() {
     res.status(200).json(healthResponse());
   });
 
+  app.use(voiceWebhooksRouter);
   app.use(notificationsRouter);
 
   // Catches errors forwarded via next(err) — including rejected promises

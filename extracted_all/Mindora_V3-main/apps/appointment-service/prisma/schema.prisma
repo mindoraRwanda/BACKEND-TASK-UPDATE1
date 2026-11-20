@@ -18,6 +18,7 @@ enum AppointmentStatus {
 
 enum SessionType {
   VIDEO
+  AUDIO
   IN_PERSON
   CHAT
 }

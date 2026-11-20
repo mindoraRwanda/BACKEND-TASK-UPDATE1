@@ -22,7 +22,9 @@ const applicantContactEmail = z
   .email('Invalid email address');
 
 export const uploadDocumentTypeSchema = z.enum([
+  'CV',
   'LICENSE',
+  'DIPLOMA',
   'CERTIFICATION',
   'ID',
   'OTHER',

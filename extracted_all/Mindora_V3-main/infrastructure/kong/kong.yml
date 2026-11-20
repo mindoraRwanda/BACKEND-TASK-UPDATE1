@@ -154,6 +154,18 @@ routes:
     paths: [/api/v1/ai/health]
     strip_path: false
     methods: [GET, OPTIONS]
+  # Africa's Talking Voice callbacks are public provider webhooks. The
+  # notification-service validates a dedicated unguessable callback token.
+  - name: notification-voice-callback
+    service: notification-service
+    paths: [/webhooks/voice/callback]
+    strip_path: false
+    methods: [POST, OPTIONS]
+  - name: notification-voice-events
+    service: notification-service
+    paths: [/webhooks/voice/events]
+    strip_path: false
+    methods: [POST, OPTIONS]
   - name: notification-health
     service: notification-service
     paths: [/api/v1/notifications/health]
@@ -164,6 +176,20 @@ routes:
     paths: [/api/v1/admin/health]
     strip_path: false
     methods: [GET, OPTIONS]
+
+  # Python chatbot service-to-service crisis webhook. Kong deliberately does not
+  # apply end-user JWT auth here; the AI service validates a separate high-entropy
+  # CHATBOT_CRISIS_WEBHOOK_TOKEN before publishing the event.
+  - name: ai-chatbot-crisis-webhook
+    service: ai-integration-service
+    paths: [/api/v1/ai/internal/chatbot-crisis-events]
+    strip_path: false
+    methods: [POST, OPTIONS]
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 30
+          policy: local
 
   # Protected API routes (JWT + rate limit)
   - name: auth-api

@@ -1,6 +1,14 @@
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomBytes,
+} from 'node:crypto';
 import { prisma } from '../lib/prisma.js';
 import {
   analyticsRangeQuerySchema,
+  createCarePlanSchema,
+  updateCarePlanSchema,
   listUsersQuerySchema,
   suspendUserSchema,
   therapistListQuerySchema,
@@ -42,6 +50,96 @@ const DEFAULT_NOTIFICATION_PREFERENCES = { push: true, email: true, sms: true };
 // a profile doesn't exist yet (e.g. ADMIN, who never gets one) or a
 // profile's email hasn't been backfilled. Always through Kong, never
 // auth-service directly, per the internal-service-call convention.
+
+type CarePlanPayload = {
+  title: string;
+  goals: string[];
+  milestones: Array<{ title: string; dueDate?: string }>;
+  reviewDate?: string;
+};
+
+function carePlanEncryptionKey(): Buffer {
+  const secret = process.env.THERAPIST_CARE_PLAN_ENCRYPTION_KEY;
+  if (!secret || secret.trim().length < 32) {
+    throw new Error('THERAPIST_CARE_PLAN_ENCRYPTION_KEY is not configured');
+  }
+  return createHash('sha256').update(secret, 'utf8').digest();
+}
+
+function encryptCarePlan(payload: CarePlanPayload): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', carePlanEncryptionKey(), iv);
+  const encrypted = Buffer.concat([
+    cipher.update(JSON.stringify(payload), 'utf8'),
+    cipher.final(),
+  ]);
+  return [
+    iv.toString('base64'),
+    cipher.getAuthTag().toString('base64'),
+    encrypted.toString('base64'),
+  ].join(':');
+}
+
+function decryptCarePlan(payload: string): CarePlanPayload {
+  const [ivB64, tagB64, encryptedB64] = payload.split(':');
+  if (!ivB64 || !tagB64 || !encryptedB64) {
+    throw new Error('Invalid encrypted care plan payload');
+  }
+  const decipher = createDecipheriv(
+    'aes-256-gcm',
+    carePlanEncryptionKey(),
+    Buffer.from(ivB64, 'base64')
+  );
+  decipher.setAuthTag(Buffer.from(tagB64, 'base64'));
+  const plaintext = Buffer.concat([
+    decipher.update(Buffer.from(encryptedB64, 'base64')),
+    decipher.final(),
+  ]).toString('utf8');
+  return JSON.parse(plaintext) as CarePlanPayload;
+}
+
+async function therapistHasPatientRelationship(
+  therapistId: string,
+  patientId: string
+): Promise<boolean> {
+  try {
+    const response = await httpClient.get<{ hasRelationship: boolean }>(
+      KONG_URL,
+      `/internal/appointments/relationship/${encodeURIComponent(therapistId)}/${encodeURIComponent(patientId)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.INTERNAL_SERVICE_TOKEN}`,
+        },
+      }
+    );
+    return response.ok && response.data?.hasRelationship === true;
+  } catch {
+    return false;
+  }
+}
+
+function publicCarePlan(record: {
+  id: string;
+  therapistId: string;
+  patientId: string;
+  encryptedPayload: string;
+  status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
+  patientAcknowledgedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}) {
+  return {
+    id: record.id,
+    therapistId: record.therapistId,
+    patientId: record.patientId,
+    ...decryptCarePlan(record.encryptedPayload),
+    status: record.status,
+    patientAcknowledgedAt: record.patientAcknowledgedAt?.toISOString() ?? null,
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString(),
+  };
+}
+
 async function fetchAuthUser(
   userId: string
 ): Promise<{ id: string; email: string; role: string } | null> {
@@ -679,7 +777,8 @@ userRouter.put(
 userRouter.get(
   '/therapists',
   authenticatedRouteLimiter,
-  verifyJwt,
+  // Public directory data is limited to approved profiles. Application, document,
+  // booking and dashboard routes remain authenticated and role-protected.
   asyncHandler(async (req, res) => {
     const parsed = therapistListQuerySchema.safeParse(req.query);
     if (!parsed.success) {
@@ -723,5 +822,253 @@ userRouter.get(
       page,
       limit,
     });
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Therapist care-plan drafts — encrypted goal-setting content only.
+// The therapist must have an existing appointment relationship with the
+// patient. The assigned patient can review drafts; a plan becomes active only
+// after patient acknowledgement. Diagnosis, medication instructions and prescriptions are out of scope.
+// ---------------------------------------------------------------------------
+
+userRouter.post(
+  '/care-plans',
+  authenticatedRouteLimiter,
+  verifyJwt,
+  asyncHandler(async (req, res) => {
+    const authReq = req as AuthenticatedRequest;
+    if (!authReq.user || authReq.user.role !== 'THERAPIST') {
+      res
+        .status(authReq.user ? 403 : 401)
+        .json({ message: 'Requires THERAPIST role' });
+      return;
+    }
+
+    const parsed = createCarePlanSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({
+        message: 'Validation failed',
+        errors: parsed.error.flatten().fieldErrors,
+      });
+      return;
+    }
+
+    const { patientId, ...payload } = parsed.data;
+    if (
+      !(await therapistHasPatientRelationship(authReq.user.userId, patientId))
+    ) {
+      res.status(403).json({ message: "Not this patient's therapist" });
+      return;
+    }
+
+    let encryptedPayload: string;
+    try {
+      encryptedPayload = encryptCarePlan(payload);
+    } catch {
+      res
+        .status(503)
+        .json({ message: 'Care-plan encryption is not configured' });
+      return;
+    }
+
+    const record = await prisma.therapistCarePlan.create({
+      data: {
+        therapistId: authReq.user.userId,
+        patientId,
+        encryptedPayload,
+        status: 'DRAFT',
+      },
+    });
+
+    res.status(201).json({ carePlan: publicCarePlan(record) });
+  })
+);
+
+userRouter.get(
+  '/care-plans',
+  authenticatedRouteLimiter,
+  verifyJwt,
+  asyncHandler(async (req, res) => {
+    const authReq = req as AuthenticatedRequest;
+    if (!authReq.user || authReq.user.role !== 'THERAPIST') {
+      res
+        .status(authReq.user ? 403 : 401)
+        .json({ message: 'Requires THERAPIST role' });
+      return;
+    }
+
+    const patientId =
+      typeof req.query.patientId === 'string' ? req.query.patientId : undefined;
+    if (
+      patientId &&
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        patientId
+      )
+    ) {
+      res.status(400).json({ message: 'Invalid patientId' });
+      return;
+    }
+    if (
+      patientId &&
+      !(await therapistHasPatientRelationship(authReq.user.userId, patientId))
+    ) {
+      res.status(403).json({ message: "Not this patient's therapist" });
+      return;
+    }
+
+    const records = await prisma.therapistCarePlan.findMany({
+      where: {
+        therapistId: authReq.user.userId,
+        ...(patientId ? { patientId } : {}),
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 100,
+    });
+
+    try {
+      res.status(200).json({ carePlans: records.map(publicCarePlan) });
+    } catch {
+      res.status(503).json({
+        message:
+          'Care-plan encryption key is unavailable or data could not be decrypted',
+      });
+    }
+  })
+);
+
+userRouter.get(
+  '/care-plans/mine',
+  authenticatedRouteLimiter,
+  verifyJwt,
+  asyncHandler(async (req, res) => {
+    const authReq = req as AuthenticatedRequest;
+    if (!authReq.user || authReq.user.role !== 'PATIENT') {
+      res
+        .status(authReq.user ? 403 : 401)
+        .json({ message: 'Requires PATIENT role' });
+      return;
+    }
+
+    const records = await prisma.therapistCarePlan.findMany({
+      where: {
+        patientId: authReq.user.userId,
+        status: { in: ['DRAFT', 'ACTIVE'] },
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 100,
+    });
+
+    try {
+      res.status(200).json({ carePlans: records.map(publicCarePlan) });
+    } catch {
+      res.status(503).json({
+        message:
+          'Care-plan encryption key is unavailable or data could not be decrypted',
+      });
+    }
+  })
+);
+
+userRouter.patch(
+  '/care-plans/:id',
+  authenticatedRouteLimiter,
+  verifyJwt,
+  asyncHandler(async (req, res) => {
+    const authReq = req as AuthenticatedRequest;
+    if (!authReq.user || authReq.user.role !== 'THERAPIST') {
+      res
+        .status(authReq.user ? 403 : 401)
+        .json({ message: 'Requires THERAPIST role' });
+      return;
+    }
+
+    const parsed = updateCarePlanSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({
+        message: 'Validation failed',
+        errors: parsed.error.flatten().fieldErrors,
+      });
+      return;
+    }
+
+    const record = await prisma.therapistCarePlan.findUnique({
+      where: { id: req.params.id as string },
+    });
+    if (!record || record.therapistId !== authReq.user.userId) {
+      res.status(404).json({ message: 'Care plan not found' });
+      return;
+    }
+
+    let encryptedPayload: string;
+    try {
+      const merged = {
+        ...decryptCarePlan(record.encryptedPayload),
+        ...parsed.data,
+      };
+      encryptedPayload = encryptCarePlan(merged);
+    } catch {
+      res.status(503).json({
+        message:
+          'Care-plan encryption is unavailable or stored data could not be decrypted',
+      });
+      return;
+    }
+
+    // An edit requires the patient to acknowledge the revised plan again.
+    const updated = await prisma.therapistCarePlan.update({
+      where: { id: record.id },
+      data: {
+        encryptedPayload,
+        status: 'DRAFT',
+        patientAcknowledgedAt: null,
+      },
+    });
+    res.status(200).json({ carePlan: publicCarePlan(updated) });
+  })
+);
+
+userRouter.post(
+  '/care-plans/:id/acknowledge',
+  authenticatedRouteLimiter,
+  verifyJwt,
+  asyncHandler(async (req, res) => {
+    const authReq = req as AuthenticatedRequest;
+    if (!authReq.user || authReq.user.role !== 'PATIENT') {
+      res
+        .status(authReq.user ? 403 : 401)
+        .json({ message: 'Requires PATIENT role' });
+      return;
+    }
+
+    const record = await prisma.therapistCarePlan.findUnique({
+      where: { id: req.params.id as string },
+    });
+    if (!record || record.patientId !== authReq.user.userId) {
+      res.status(404).json({ message: 'Care plan not found' });
+      return;
+    }
+    if (record.status !== 'DRAFT') {
+      res
+        .status(409)
+        .json({ message: 'Only a draft care plan can be acknowledged' });
+      return;
+    }
+
+    const updated = await prisma.therapistCarePlan.update({
+      where: { id: record.id },
+      data: {
+        status: 'ACTIVE',
+        patientAcknowledgedAt: new Date(),
+      },
+    });
+    try {
+      res.status(200).json({ carePlan: publicCarePlan(updated) });
+    } catch {
+      res.status(503).json({
+        message:
+          'Care-plan encryption key is unavailable or data could not be decrypted',
+      });
+    }
   })
 );

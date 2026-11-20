@@ -60,13 +60,16 @@
     "joi": "^18.3.1",
     "africastalking": {
       "axios": "1.20.0",
-      "body-parser": "2.4.0",
-      "joi": "18.3.2"
+      "joi": "18.3.1"
     },
-    "swagger-jsdoc": {
-      "glob": "14.0.2"
-    },
-    "vite": "7.3.6"
+    "vite": "7.3.6",
+    "body-parser@~1.20.5": "1.20.9",
+    "body-parser@^2.2.1": "2.4.0",
+    "body-parser@2.3.0": "2.4.0",
+    "fast-uri": "3.1.9",
+    "follow-redirects": "1.16.2",
+    "glob": "14.0.2",
+    "minimatch": "11.0.1"
   },
   "dependencies": {
     "@socket.io/redis-adapter": "^8.3.0",
@@ -75,15 +78,14 @@
     "express": "^5.2.1",
     "ioredis": "^5.11.1",
     "joi": "^18.3.1",
-    "mongoose": "^9.6.3",
+    "mongoose": "^9.11.4",
     "resend": "^6.29.0",
     "socket.io": "^4.8.3"
   },
   "optionalDependencies": {
-    "@rollup/rollup-linux-x64-gnu": "^4.68.2",
-    "@tailwindcss/oxide-linux-x64-gnu": "^4.3.3",
     "@tailwindcss/oxide-win32-x64-msvc": "^4.3.3",
-    "lightningcss-linux-x64-gnu": "1.33.0",
-    "lightningcss-win32-x64-msvc": "1.33.0"
+    "@tailwindcss/oxide-linux-x64-gnu": "^4.3.3",
+    "lightningcss-win32-x64-msvc": "1.33.0",
+    "lightningcss-linux-x64-gnu": "1.33.0"
   }
 }

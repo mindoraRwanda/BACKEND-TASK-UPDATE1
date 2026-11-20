@@ -1,7 +1,7 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
-  output   = "../src/generated/prisma"
+  output        = "../src/generated/prisma"
 }
 
 datasource db {
@@ -68,7 +68,7 @@ model TherapistProfile {
   // The application/status-transition endpoints are the source of truth;
   // never write these two fields from anywhere else.
   applicationStatus TherapistApplicationStatus? @map("application_status")
-  applicationId     String?                     @db.Uuid @map("application_id")
+  applicationId     String?                     @map("application_id") @db.Uuid
   // Distinct from Auth Service's account-level suspension (isActive):
   // that revokes all API access; this only hides the therapist from patient
   // discovery. Admin-service's therapist-suspend route sets both, in that
@@ -110,15 +110,15 @@ model TherapistApplication {
   contactEmail String @map("contact_email")
 
   professionalBio                String    @map("professional_bio")
-  qualifications                  String[]  @default([])
-  certifications                  String[]  @default([])
-  licenseNumber                   String    @map("license_number")
-  licenseIssuingBody              String    @map("license_issuing_body")
-  licenseExpiryDate               DateTime? @map("license_expiry_date")
-  professionalRegistrationNumber  String?   @map("professional_registration_number")
-  specialisations                 String[]  @default([])
-  yearsOfExperience               Int       @map("years_of_experience")
-  languages                       String[]  @default([])
+  qualifications                 String[]  @default([])
+  certifications                 String[]  @default([])
+  licenseNumber                  String    @map("license_number")
+  licenseIssuingBody             String    @map("license_issuing_body")
+  licenseExpiryDate              DateTime? @map("license_expiry_date")
+  professionalRegistrationNumber String?   @map("professional_registration_number")
+  specialisations                String[]  @default([])
+  yearsOfExperience              Int       @map("years_of_experience")
+  languages                      String[]  @default([])
 
   // Free text at intake, not a real schedule — the therapist configures
   // real availability in appointment-service after approval, this is only
@@ -127,11 +127,11 @@ model TherapistApplication {
   location            String
   timezone            String  @default("Africa/Kigali")
 
-  submittedAt DateTime? @map("submitted_at")
-  reviewedAt  DateTime? @map("reviewed_at")
+  submittedAt     DateTime? @map("submitted_at")
+  reviewedAt      DateTime? @map("reviewed_at")
   // The admin's Auth Service userId — plain field, not a local FK, same
   // convention as userId above.
-  reviewedBy  String?   @db.Uuid @map("reviewed_by")
+  reviewedBy      String?   @map("reviewed_by") @db.Uuid
   // Applicant-visible record of the last REJECTED/MORE_INFORMATION_REQUIRED
   // decision. Without these, the reason/note only ever reached the
   // applicant via the one-off notification email (see notification-service)
@@ -139,8 +139,8 @@ model TherapistApplication {
   // later, had no way to see why. Whichever is relevant to the current
   // `status` is the one to show; the other is simply stale from a prior
   // decision, not cleared on later transitions.
-  rejectionReason String? @map("rejection_reason")
-  infoRequestNote String? @map("info_request_note")
+  rejectionReason String?   @map("rejection_reason")
+  infoRequestNote String?   @map("info_request_note")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -189,4 +189,94 @@ model TherapistApplicationNote {
 
   @@index([applicationId])
   @@map("therapist_application_notes")
+}
+
+enum TherapistCarePlanStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+// Only goal-setting content is stored here. The payload (including title,
+// goals and milestone labels) is encrypted with a dedicated application key.
+// Patient and therapist ids are identifiers only; the relationship is
+// validated through Appointment Service before therapist access is granted.
+model TherapistCarePlan {
+  id                    String                  @id @default(uuid()) @db.Uuid
+  therapistId           String                  @map("therapist_id") @db.Uuid
+  patientId             String                  @map("patient_id") @db.Uuid
+  encryptedPayload      String                  @map("encrypted_payload")
+  status                TherapistCarePlanStatus @default(DRAFT)
+  patientAcknowledgedAt DateTime?               @map("patient_acknowledged_at")
+  createdAt             DateTime                @default(now()) @map("created_at")
+  updatedAt             DateTime                @updatedAt @map("updated_at")
+
+  @@index([therapistId, status, updatedAt])
+  @@index([patientId, status])
+  @@map("therapist_care_plans")
+}
+
+// Prescription draft records are not prescriptions. The encrypted payload is
+// only a working draft and no model status can represent issue, signing,
+// dispensing or pharmacy transmission. Therapist/patient IDs are identifiers
+// only; access is checked through Appointment Service before every operation.
+enum PrescriptionDraftStatus {
+  DRAFT
+  ARCHIVED
+}
+
+model TherapistPrescriptionDraft {
+  id               String                  @id @default(uuid()) @db.Uuid
+  therapistId      String                  @map("therapist_id") @db.Uuid
+  patientId        String                  @map("patient_id") @db.Uuid
+  encryptedPayload String                  @map("encrypted_payload")
+  status           PrescriptionDraftStatus @default(DRAFT)
+  createdAt        DateTime                @default(now()) @map("created_at")
+  updatedAt        DateTime                @updatedAt @map("updated_at")
+
+  @@index([therapistId, status, updatedAt])
+  @@index([patientId, status])
+  @@map("therapist_prescription_drafts")
+}
+
+// Medication changes are patient-submitted requests for therapist review.
+// They do not mutate a medicine list or automatically change a clinical
+// record. Both request and review notes are stored only inside encryptedPayload.
+enum MedicationUpdateStatus {
+  PENDING
+  REVIEWED
+  FOLLOW_UP_REQUIRED
+}
+
+model MedicationUpdateRequest {
+  id               String                 @id @default(uuid()) @db.Uuid
+  therapistId      String                 @map("therapist_id") @db.Uuid
+  patientId        String                 @map("patient_id") @db.Uuid
+  encryptedPayload String                 @map("encrypted_payload")
+  status           MedicationUpdateStatus @default(PENDING)
+  reviewedAt       DateTime?              @map("reviewed_at")
+  reviewedBy       String?                @map("reviewed_by") @db.Uuid
+  createdAt        DateTime               @default(now()) @map("created_at")
+  updatedAt        DateTime               @updatedAt @map("updated_at")
+
+  @@index([therapistId, status, createdAt])
+  @@index([patientId, createdAt])
+  @@map("medication_update_requests")
+}
+
+// Append-only operational audit of clinical-workspace writes. Payloads are
+// deliberately excluded: audit metadata records action/state only, never
+// medication instructions, notes, strengths or other plaintext clinical data.
+model ClinicalWorkspaceAuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  actorId    String   @map("actor_id") @db.Uuid
+  recordType String   @map("record_type")
+  recordId   String   @map("record_id") @db.Uuid
+  actionType String   @map("action_type")
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([actorId, createdAt])
+  @@index([recordType, recordId])
+  @@map("clinical_workspace_audit_logs")
 }
