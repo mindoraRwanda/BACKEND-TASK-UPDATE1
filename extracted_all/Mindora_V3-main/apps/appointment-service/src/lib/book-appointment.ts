@@ -71,7 +71,11 @@ export async function bookAppointmentWithLock(
 
     if (
       !schedule ||
-      !fitsWorkingHours(input.slotStart, input.slotEnd, schedule.workingHours) ||
+      !fitsWorkingHours(
+        input.slotStart,
+        input.slotEnd,
+        schedule.workingHours
+      ) ||
       schedule.timeOff.length > 0
     ) {
       throw new SlotUnavailableError();

@@ -289,10 +289,7 @@ async function deliverAdminCrisisAlert(
     update: {},
   });
 
-  if (
-    delivery.status === 'delivered' ||
-    delivery.status === 'skipped'
-  ) {
+  if (delivery.status === 'delivered' || delivery.status === 'skipped') {
     return;
   }
 
@@ -362,8 +359,7 @@ async function deliverAdminCrisisAlert(
           where: { id: delivery.id },
           data: {
             status: 'skipped',
-            failureReason:
-              'SMS disabled or Africa Talking credentials missing',
+            failureReason: 'SMS disabled or Africa Talking credentials missing',
           },
         });
         return;
@@ -400,8 +396,7 @@ async function deliverAdminCrisisAlert(
       `[crisis-alert] ${channel} accepted for delivery (event=${eventId})`
     );
   } catch (error) {
-    const reason =
-      error instanceof Error ? error.message : String(error);
+    const reason = error instanceof Error ? error.message : String(error);
 
     await prisma.crisis_deliveries.update({
       where: { id: delivery.id },
@@ -449,9 +444,7 @@ async function handleAi(payload: unknown): Promise<void> {
     ),
   ]);
 
-  const failures = results.filter(
-    (result) => result.status === 'rejected'
-  );
+  const failures = results.filter((result) => result.status === 'rejected');
 
   console.log('[crisis-alert] delivery results:', {
     eventId: crisis.eventId,
@@ -460,9 +453,7 @@ async function handleAi(payload: unknown): Promise<void> {
   });
 
   if (failures.length > 0) {
-    throw new Error(
-      `${failures.length} crisis notification channel(s) failed`
-    );
+    throw new Error(`${failures.length} crisis notification channel(s) failed`);
   }
 }
 
