@@ -17,10 +17,13 @@ function encryptWithKey(value: string, key: Buffer): string {
   return `${iv.toString('hex')}:${cipher.getAuthTag().toString('hex')}:${encrypted.toString('hex')}`;
 }
 
-
 function decryptWithKey(value: string, key: Buffer): string {
   const [ivHex, authTagHex, dataHex] = value.split(':');
-  const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
+  const decipher = crypto.createDecipheriv(
+    'aes-256-gcm',
+    key,
+    Buffer.from(ivHex, 'hex')
+  );
   decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
   return Buffer.concat([
     decipher.update(Buffer.from(dataHex, 'hex')),
@@ -63,7 +66,7 @@ describe('message encryption key rotation', () => {
     expect(decryptWithKey(ciphertext, Buffer.from(hexKey, 'hex'))).toBe(
       'A message with a hexadecimal key'
     );
-  }),
+  });
 
   it('preserves existing plaintext records', () => {
     process.env.NODE_ENV = 'test';
