@@ -558,3 +558,66 @@ describe('mood and AI handlers', () => {
     expect(mocks.sendVoiceCall).toHaveBeenCalled();
   });
 });
+
+describe('auth notification handler', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mocks.sendEmail.mockReset().mockResolvedValue(true);
+    mocks.logNotification.mockReset().mockResolvedValue(undefined);
+    mocks.subscribeWithRetry.mockResolvedValue(undefined);
+    await startConsumers();
+  });
+
+  it('sends a password reset email with the one-time link and expiry', async () => {
+    const resetUrl = 'https://app.mindora.rw/reset-password?token=test-one-time-token';
+
+    await capturedHandler(EXCHANGES.AUTH)({
+      eventId: 'a4a5e8f1-cc36-44a7-91cf-07e2b9512c72',
+      occurredAt: '2026-11-24T00:00:00.000Z',
+      eventType: 'password.reset',
+      recipientEmail: 'patient@example.com',
+      resetUrl,
+      expiresInMinutes: 15,
+    });
+
+    expect(mocks.sendEmail).toHaveBeenCalledWith(
+      'patient@example.com',
+      'Reset your MINDORA password',
+      expect.stringContaining(resetUrl)
+    );
+    expect(mocks.sendEmail.mock.calls[0]?.[2]).toContain(
+      'expires in 15 minutes'
+    );
+    expect(mocks.logNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'password.reset',
+        channel: 'email',
+        status: 'accepted',
+      })
+    );
+  });
+
+  it('records a failed password reset email and lets the queue retry', async () => {
+    mocks.sendEmail.mockRejectedValueOnce(new Error('Resend unavailable'));
+
+    await expect(
+      capturedHandler(EXCHANGES.AUTH)({
+        eventId: 'c1982d89-4db8-4c87-b19f-8dcb4f9a8128',
+        occurredAt: '2026-11-24T00:00:00.000Z',
+        eventType: 'password.reset',
+        recipientEmail: 'patient@example.com',
+        resetUrl:
+          'https://app.mindora.rw/reset-password?token=test-one-time-token',
+        expiresInMinutes: 15,
+      })
+    ).rejects.toThrow('Resend unavailable');
+
+    expect(mocks.logNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'password.reset',
+        channel: 'email',
+        status: 'failed',
+      })
+    );
+  });
+});
