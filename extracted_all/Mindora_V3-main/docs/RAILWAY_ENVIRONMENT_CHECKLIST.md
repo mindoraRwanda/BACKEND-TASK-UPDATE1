@@ -14,7 +14,7 @@ Set these on the Railway `Mindora_V3` backend service:
 | `COMMUNITY_ENCRYPTION_KEY`   | Generate a new random value: `openssl rand -hex 32`       | AES-256-GCM encryption for community author IDs.                                                                                                           |
 | `MESSAGE_ENCRYPTION_KEY`     | Generate a different random value: `openssl rand -hex 32` | AES-256-GCM encryption for private messages.                                                                                                               |
 
-The encryption code in this PR supports reading existing records encrypted with the previous development fallback key, but new production writes fail closed if either dedicated key is missing. Generate separate keys; never reuse the JWT secret, chatbot integration key, or each other's encryption key. Keep them in Railway only.
+The encryption code in this PR supports reading existing records encrypted with the previous development fallback key, but new production writes fail closed if either dedicated key is missing. It decodes a 64-character hexadecimal value from `openssl rand -hex 32` into the intended 32-byte AES-256 key. Generate separate keys; never reuse the JWT secret, chatbot integration key, or each other's encryption key. Keep them in Railway only.
 
 ## Therapist document uploads
 
