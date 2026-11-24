@@ -17,6 +17,17 @@ function encryptWithKey(value: string, key: Buffer): string {
   return `${iv.toString('hex')}:${cipher.getAuthTag().toString('hex')}:${encrypted.toString('hex')}`;
 }
 
+
+function decryptWithKey(value: string, key: Buffer): string {
+  const [ivHex, authTagHex, dataHex] = value.split(':');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
+  decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
+  return Buffer.concat([
+    decipher.update(Buffer.from(dataHex, 'hex')),
+    decipher.final(),
+  ]).toString('utf8');
+}
+
 const originalKey = process.env.MESSAGE_ENCRYPTION_KEY;
 const originalNodeEnv = process.env.NODE_ENV;
 
@@ -43,6 +54,16 @@ describe('message encryption key rotation', () => {
     const ciphertext = encryptContent('A new private message');
     expect(decryptContent(ciphertext)).toBe('A new private message');
   });
+
+  it('decodes 32-byte hexadecimal keys before encrypting new messages', () => {
+    process.env.NODE_ENV = 'test';
+    const hexKey = '0123456789abcdef'.repeat(4);
+    process.env.MESSAGE_ENCRYPTION_KEY = hexKey;
+    const ciphertext = encryptContent('A message with a hexadecimal key');
+    expect(decryptWithKey(ciphertext, Buffer.from(hexKey, 'hex'))).toBe(
+      'A message with a hexadecimal key'
+    );
+  }),
 
   it('preserves existing plaintext records', () => {
     process.env.NODE_ENV = 'test';
