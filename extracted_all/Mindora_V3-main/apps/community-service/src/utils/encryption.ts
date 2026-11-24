@@ -8,7 +8,9 @@ const LEGACY_ENCRYPTION_KEY = Buffer.from(
 function configuredEncryptionKey(): Buffer | null {
   const raw = process.env.COMMUNITY_ENCRYPTION_KEY?.trim();
   if (!raw) return null;
-  const key = Buffer.from(raw, 'utf8');
+  const key = /^[0-9a-f]{64}$/i.test(raw)
+    ? Buffer.from(raw, 'hex')
+    : Buffer.from(raw, 'utf8');
   if (key.length < 32) {
     throw new Error('COMMUNITY_ENCRYPTION_KEY must be at least 32 bytes');
   }
