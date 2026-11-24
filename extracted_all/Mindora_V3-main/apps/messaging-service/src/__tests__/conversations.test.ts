@@ -189,6 +189,19 @@ describe('GET /api/v1/messaging/conversations/:id', () => {
     expect(res.body.nextCursor).toBeDefined();
   });
 
+  it('allows the therapist participant to access conversation history', async () => {
+    const conv = await Conversation.create({
+      participants: ['patient-123', 'therapist-456'],
+    });
+
+    const res = await request
+      .get(`/api/v1/messaging/conversations/${conv._id}`)
+      .set('Authorization', therapistHeader);
+
+    expect(res.status).toBe(200);
+    expect(res.body.messages).toBeDefined();
+  });
+
   it('returns 403 when the requesting user is not a participant', async () => {
     const conv = await Conversation.create({
       participants: ['patient-123', 'therapist-456'],

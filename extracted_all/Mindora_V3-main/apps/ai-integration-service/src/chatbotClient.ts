@@ -115,8 +115,16 @@ async function createConversation(accessToken: string): Promise<string> {
     { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } },
     15_000
   );
-  const body = (await res.json()) as { id: string };
-  return body.id;
+  const body = (await res.json()) as { id?: unknown };
+  if (
+    (typeof body.id !== 'number' && typeof body.id !== 'string') ||
+    String(body.id).trim() === ''
+  ) {
+    throw new ChatbotApiError(
+      'Therapy chatbot returned an invalid conversation id'
+    );
+  }
+  return String(body.id);
 }
 
 async function provisionOrRefreshSession(
@@ -212,6 +220,10 @@ async function sendMessage(
   session: ChatbotSession,
   content: string
 ): Promise<ChatbotMessage> {
+  const conversationId = Number(session.conversationId);
+  if (!Number.isSafeInteger(conversationId) || conversationId <= 0) {
+    throw new ChatbotApiError('Therapy chatbot conversation id is invalid');
+  }
   const res = await chatbotFetch(
     '/auth/messages',
     {
@@ -221,14 +233,36 @@ async function sendMessage(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        conversation_id: session.conversationId,
+        conversation_id: conversationId,
         content,
       }),
     },
     // Observed latency for this LLM-backed pipeline is ~20-25s.
     45_000
   );
-  return (await res.json()) as ChatbotMessage;
+  const body = (await res.json()) as {
+    id?: unknown;
+    sender?: unknown;
+    content?: unknown;
+    timestamp?: unknown;
+  };
+  if (
+    (typeof body.id !== 'number' && typeof body.id !== 'string') ||
+    String(body.id).trim() === '' ||
+    typeof body.sender !== 'string' ||
+    typeof body.content !== 'string' ||
+    typeof body.timestamp !== 'string'
+  ) {
+    throw new ChatbotApiError(
+      'Therapy chatbot returned an invalid message payload'
+    );
+  }
+  return {
+    id: String(body.id),
+    sender: body.sender,
+    content: body.content,
+    timestamp: body.timestamp,
+  };
 }
 
 // Entry point used by DELETE /history. Best-effort: the vendor conversation

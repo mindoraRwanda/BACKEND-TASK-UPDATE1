@@ -121,7 +121,7 @@ COMMUNITY_ENCRYPTION_KEY=<generate with: openssl rand -hex 16>
 MESSAGE_ENCRYPTION_KEY=<generate with: openssl rand -hex 16>
 AI_INTERACTION_ENCRYPTION_KEY=<generate with: openssl rand -hex 16>
 USER_SERVICE_URL=http://localhost:3002
-APP_BASE_URL=<only needed for Google OAuth — set once you know the public domain, step 7, otherwise leave unset>
+APP_BASE_URL=https://app.mindora.rw  # Required: public frontend URL used in password-reset links and OAuth redirects
 
 # AI provider behind POST /chat — see apps/ai-integration-service/src/chatbotClient.ts.
 # A session (short-lived access token) is exchanged per patient lazily, on that

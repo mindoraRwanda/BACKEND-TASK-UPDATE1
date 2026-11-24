@@ -8,7 +8,7 @@ COPY package.json package-lock.json turbo.json tsconfig.json tsconfig.base.json 
 COPY apps ./apps
 COPY packages ./packages
 
-RUN npm install
+RUN npm ci
 # The Prisma client committed under src/generated is a dev machine's own
 # build (native query engine binary for that machine's OS), not portable —
 # regenerate it here so the engine binary matches this Alpine/musl image.

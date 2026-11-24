@@ -36,6 +36,13 @@ export interface AICrisisEvent {
   sessionId: string | null;
   crisisLevel: number;
   timestamp: string;
+  messageExcerpt?: string;
+  conversationExcerpt?: string;
+  interactionId?: string;
+  /** Origin of the safety event. Older web-app producers may omit this. */
+  source?: 'web-chatbot' | 'python-chatbot';
+  /** External user reference from a separate chatbot identity system. */
+  externalUserRef?: string;
 }
 
 export const aiCrisisEventSchema = z.object({
@@ -45,4 +52,9 @@ export const aiCrisisEventSchema = z.object({
   sessionId: z.string().nullable(),
   crisisLevel: z.number(),
   timestamp: z.string().datetime(),
+  messageExcerpt: z.string().max(1500).optional(),
+  conversationExcerpt: z.string().max(5000).optional(),
+  interactionId: z.string().uuid().optional(),
+  source: z.enum(['web-chatbot', 'python-chatbot']).optional(),
+  externalUserRef: z.string().max(120).optional(),
 });

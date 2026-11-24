@@ -18,7 +18,11 @@ export const registerSchema = z.object({
   password: z
     .string()
     .min(8, 'Password must be at least 8 characters')
-    .max(128, 'Password must be at most 128 characters'),
+    .max(128, 'Password must be at most 128 characters')
+    .regex(
+      /^(?=.*[A-Za-z])(?=.*\d).{8,128}$/,
+      'Password must contain at least one letter and one number'
+    ),
   role: userRoleSchema,
   userName: z
     .string()
@@ -41,7 +45,11 @@ export const resetPasswordSchema = z.object({
   newPassword: z
     .string()
     .min(8, 'Password must be at least 8 characters')
-    .max(128, 'Password must be at most 128 characters'),
+    .max(128, 'Password must be at most 128 characters')
+    .regex(
+      /^(?=.*[A-Za-z])(?=.*\d).{8,128}$/,
+      'Password must contain at least one letter and one number'
+    ),
 });
 
 export type RegisterDto = z.infer<typeof registerSchema>;

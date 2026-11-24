@@ -4,18 +4,20 @@ import { EXCHANGES } from '@mindora/events';
 const mocks = vi.hoisted(() => ({
   sendPushNotification: vi.fn(),
   subscribeWithRetry: vi.fn(),
-  sendEmail: vi.fn(),
-  sendEmailToUser: vi.fn(),
-  getUserName: vi.fn(),
-  sendSms: vi.fn(),
-  logNotification: vi.fn(),
-  prisma: {
-    crisis_deliveries: {
-      upsert: vi.fn(),
-      updateMany: vi.fn(),
-      update: vi.fn(),
-    },
-  },
+  sendEmail: vi.fn().mockResolvedValue(true),
+  sendEmailToUser: vi.fn().mockResolvedValue(undefined),
+  sendSms: vi.fn().mockResolvedValue(undefined),
+  sendVoiceCall: vi.fn().mockResolvedValue({ accepted: true }),
+  claimNotificationAttempt: vi.fn().mockResolvedValue(true),
+  finishNotificationAttempt: vi.fn().mockResolvedValue(undefined),
+  logNotification: vi.fn().mockResolvedValue(undefined),
+  getUserName: vi.fn().mockResolvedValue('Test User'),
+  getUserPreferences: vi.fn().mockResolvedValue({
+    fcmToken: null,
+    email: 'patient@example.com',
+    phoneNumber: null,
+    notificationPreferences: { push: true, email: true, sms: false },
+  }),
 }));
 
 vi.mock('../fcm.js', () => ({
@@ -32,13 +34,20 @@ vi.mock('../email.js', () => ({
   getUserName: mocks.getUserName,
 }));
 
-vi.mock('../sms.js', () => ({
-  sendSms: mocks.sendSms,
+vi.mock('../sms.js', () => ({ sendSms: mocks.sendSms }));
+vi.mock('../voice.js', () => ({ sendVoiceCall: mocks.sendVoiceCall }));
+vi.mock('../notificationLogger.js', () => ({
+  claimNotificationAttempt: mocks.claimNotificationAttempt,
+  finishNotificationAttempt: mocks.finishNotificationAttempt,
+  logNotification: mocks.logNotification,
 }));
 
-vi.mock('../notificationLogger.js', () => ({
-  logNotification: mocks.logNotification,
-  prisma: mocks.prisma,
+vi.mock('../preferences.js', () => ({
+  getUserPreferences: mocks.getUserPreferences,
+  isChannelEnabled: (
+    prefs: { push: boolean; email: boolean; sms: boolean },
+    channel: 'push' | 'email' | 'sms'
+  ) => prefs[channel],
 }));
 
 import { startConsumers, SUBSCRIBED_EXCHANGES } from '../consumers.js';
@@ -60,8 +69,8 @@ describe('startConsumers — registration', () => {
     await startConsumers();
   });
 
-  it('subscribes to exactly 6 exchanges', () => {
-    expect(mocks.subscribeWithRetry).toHaveBeenCalledTimes(6);
+  it('subscribes to all 7 required exchanges including auth notifications', () => {
+    expect(mocks.subscribeWithRetry).toHaveBeenCalledTimes(7);
   });
 
   it('SUBSCRIBED_EXCHANGES contains all exchange names', () => {
@@ -79,13 +88,27 @@ describe('startConsumers — registration', () => {
     expect(registeredExchanges).toContain(EXCHANGES.COMMUNITY);
     expect(registeredExchanges).toContain(EXCHANGES.MOOD);
     expect(registeredExchanges).toContain(EXCHANGES.AI);
+    expect(registeredExchanges).toContain(EXCHANGES.AUTH);
     expect(registeredExchanges).toContain(EXCHANGES.THERAPIST_APPLICATIONS);
   });
 });
 
 describe('appointment handler', () => {
   beforeEach(async () => {
+    process.env.MINDORA_BOOKING_ALERT_EMAILS = 'ops@example.com';
+    process.env.MINDORA_BOOKING_ALERT_PHONES = '';
+    process.env.SMS_ENABLED = 'false';
+    process.env.AT_VOICE_ENABLED = 'false';
+    process.env.MINDORA_CRISIS_ALERT_VOICE_PHONES = '';
+    process.env.AT_API_KEY = '';
+    process.env.AT_USERNAME = '';
     vi.clearAllMocks();
+    mocks.sendEmail.mockReset().mockResolvedValue(true);
+    mocks.sendSms.mockReset().mockResolvedValue(undefined);
+    mocks.sendVoiceCall.mockReset().mockResolvedValue({ accepted: true });
+    mocks.claimNotificationAttempt.mockReset().mockResolvedValue(true);
+    mocks.finishNotificationAttempt.mockReset().mockResolvedValue(undefined);
+    mocks.logNotification.mockReset().mockResolvedValue(undefined);
     mocks.subscribeWithRetry.mockResolvedValue(undefined);
     await startConsumers();
   });
@@ -394,27 +417,22 @@ describe('community handler', () => {
 
 describe('mood and AI handlers', () => {
   beforeEach(async () => {
+    process.env.MINDORA_CRISIS_ALERT_EMAILS = 'crisis@example.com';
+    process.env.MINDORA_CRISIS_ALERT_PHONES = '';
+    process.env.MINDORA_CRISIS_ALERT_VOICE_PHONES = '';
+    process.env.SMS_ENABLED = 'false';
+    process.env.AT_VOICE_ENABLED = 'false';
+    process.env.AT_API_KEY = '';
+    process.env.AT_USERNAME = '';
     vi.clearAllMocks();
+    mocks.sendEmail.mockReset().mockResolvedValue(true);
+    mocks.sendSms.mockReset().mockResolvedValue(undefined);
+    mocks.sendVoiceCall.mockReset().mockResolvedValue({ accepted: true });
+    mocks.claimNotificationAttempt.mockReset().mockResolvedValue(true);
+    mocks.finishNotificationAttempt.mockReset().mockResolvedValue(undefined);
+    mocks.logNotification.mockReset().mockResolvedValue(undefined);
     mocks.subscribeWithRetry.mockResolvedValue(undefined);
     await startConsumers();
-    process.env.ADMIN_CRISIS_EMAIL = 'admin@test.com';
-process.env.ADMIN_CRISIS_PHONE = '+250788000000';
-process.env.SMS_ENABLED = 'true';
-process.env.AT_API_KEY = 'test-key';
-process.env.AT_USERNAME = 'sandbox';
-
-mocks.prisma.crisis_deliveries.upsert.mockResolvedValue({
-  id: 'delivery-1',
-  status: 'pending',
-});
-
-mocks.prisma.crisis_deliveries.updateMany.mockResolvedValue({
-  count: 1,
-});
-
-mocks.prisma.crisis_deliveries.update.mockResolvedValue({});
-mocks.sendEmail.mockResolvedValue(true);
-mocks.sendSms.mockResolvedValue(undefined);
   });
 
   it('does not send push for mood events — log only', async () => {
@@ -431,88 +449,112 @@ mocks.sendSms.mockResolvedValue(undefined);
     expect(mocks.sendPushNotification).not.toHaveBeenCalled();
   });
 
-
-it('sends crisis email and SMS to the admin', async () => {
-  const payload = {
-    eventId: '714ccdf3-af66-48be-b051-1eedfc17d1a6',
-    occurredAt: '2024-01-01T00:00:00Z',
-    userId: 'afdaad18-1241-47c8-a633-f912fa3f9d03',
-    sessionId: null,
-    crisisLevel: 5,
-    timestamp: '2024-01-01T00:00:00Z',
-  };
-
-  await capturedHandler(EXCHANGES.AI)(payload);
-
-  expect(mocks.sendEmail).toHaveBeenCalledWith(
-    'admin@test.com',
-    'Mindora: Crisis alert requires attention',
-    expect.stringContaining('Severity level: 5')
-  );
-
-  expect(mocks.sendSms).toHaveBeenCalledWith(
-    'ADMIN_CRISIS_ALERT',
-    expect.stringContaining('severity level 5'),
-    '+250788000000',
-    'ai.crisis.admin'
-  );
-
-  expect(mocks.sendPushNotification).not.toHaveBeenCalled();
-});
-
-it('attempts SMS even when email delivery fails', async () => {
-  mocks.sendEmail.mockRejectedValueOnce(new Error('Email provider failed'));
-
-  await expect(
-    capturedHandler(EXCHANGES.AI)({
-      eventId: '814ccdf3-af66-48be-b051-1eedfc17d1a6',
+  it('sends the operations email for a valid AI crisis event without sending user push', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    await capturedHandler(EXCHANGES.AI)({
+      eventId: '714ccdf3-af66-48be-b051-1eedfc17d1a6',
       occurredAt: '2024-01-01T00:00:00Z',
       userId: 'afdaad18-1241-47c8-a633-f912fa3f9d03',
       sessionId: null,
-      crisisLevel: 5,
+      crisisLevel: 3,
       timestamp: '2024-01-01T00:00:00Z',
-    })
-  ).rejects.toThrow('1 crisis notification channel(s) failed');
-
-  expect(mocks.sendSms).toHaveBeenCalled();
-});
-
-it('does not resend channels already marked as delivered', async () => {
-  mocks.prisma.crisis_deliveries.upsert.mockResolvedValue({
-    id: 'delivery-already-sent',
-    status: 'delivered',
+      messageExcerpt: 'I am thinking about suicide',
+      conversationExcerpt: 'User: I feel unsafe\nMINDORA: I am here with you',
+      interactionId: 'b4a9da11-4ce5-44e1-a8bc-f2f2e26c56c3',
+    });
+    expect(mocks.sendPushNotification).not.toHaveBeenCalled();
+    expect(mocks.sendEmail).toHaveBeenCalledWith(
+      'crisis@example.com',
+      expect.stringContaining('URGENT'),
+      expect.stringContaining('I am thinking about suicide')
+    );
   });
 
-  await capturedHandler(EXCHANGES.AI)({
-    eventId: '914ccdf3-af66-48be-b051-1eedfc17d1a6',
-    occurredAt: '2024-01-01T00:00:00Z',
-    userId: 'afdaad18-1241-47c8-a633-f912fa3f9d03',
-    sessionId: null,
-    crisisLevel: 5,
-    timestamp: '2024-01-01T00:00:00Z',
+  it('attempts SMS and Voice even when crisis email fails', async () => {
+    process.env.MINDORA_CRISIS_ALERT_EMAILS = 'crisis@example.com';
+    process.env.MINDORA_CRISIS_ALERT_PHONES = '+250700000001';
+    process.env.MINDORA_CRISIS_ALERT_VOICE_PHONES = '+250700000002';
+    process.env.SMS_ENABLED = 'true';
+    process.env.AT_API_KEY = 'test-key';
+    process.env.AT_USERNAME = 'sandbox';
+    process.env.AT_VOICE_ENABLED = 'true';
+    mocks.sendEmail.mockRejectedValueOnce(new Error('Resend unavailable'));
+    mocks.sendSms.mockResolvedValueOnce(undefined);
+    mocks.sendVoiceCall.mockResolvedValueOnce({ accepted: true });
+
+    await expect(
+      capturedHandler(EXCHANGES.AI)({
+        eventId: '714ccdf3-af66-48be-b051-1eedfc17d1a6',
+        occurredAt: '2026-11-01T00:00:00Z',
+        userId: 'afdaad18-1241-47c8-a633-f912fa3f9d03',
+        sessionId: null,
+        crisisLevel: 4,
+        timestamp: '2026-11-01T00:00:00Z',
+        messageExcerpt: 'I have already hurt myself',
+        conversationExcerpt: 'User disclosed recent self-harm',
+        interactionId: 'b4a9da11-4ce5-44e1-a8bc-f2f2e26c56c3',
+      })
+    ).rejects.toThrow('One or more crisis notification channels failed');
+
+    expect(mocks.sendSms).toHaveBeenCalledTimes(1);
+    expect(mocks.sendVoiceCall).toHaveBeenCalledTimes(1);
   });
 
-  expect(mocks.sendEmail).not.toHaveBeenCalled();
-  expect(mocks.sendSms).not.toHaveBeenCalled();
-  expect(mocks.prisma.crisis_deliveries.updateMany).not.toHaveBeenCalled();
-});
+  it('attempts email when crisis SMS fails', async () => {
+    process.env.MINDORA_CRISIS_ALERT_EMAILS = 'crisis@example.com';
+    process.env.MINDORA_CRISIS_ALERT_PHONES = '+250700000001';
+    process.env.SMS_ENABLED = 'true';
+    process.env.AT_API_KEY = 'test-key';
+    process.env.AT_USERNAME = 'sandbox';
+    mocks.sendSms.mockRejectedValueOnce(
+      new Error('Africa Talking unavailable')
+    );
 
-it('attempts email even when SMS delivery fails', async () => {
-  mocks.sendSms.mockRejectedValueOnce(
-    new Error('SMS provider failed')
-  );
+    await expect(
+      capturedHandler(EXCHANGES.AI)({
+        eventId: 'c53e8830-e8b5-42e7-b9b2-11b7e341c521',
+        occurredAt: '2026-11-01T00:00:00Z',
+        userId: '029ff388-2f20-486e-aeda-e54916f4f4cd',
+        sessionId: null,
+        crisisLevel: 3,
+        timestamp: '2026-11-01T00:00:00Z',
+        messageExcerpt: 'I am thinking about suicide',
+        conversationExcerpt: 'User asked for urgent support',
+        interactionId: '80a54a15-5ea8-4856-96b6-bfce49f7d668',
+      })
+    ).rejects.toThrow('One or more crisis notification channels failed');
 
-  await expect(
-    capturedHandler(EXCHANGES.AI)({
-      eventId: 'a14ccdf3-af66-48be-b051-1eedfc17d1a6',
-      occurredAt: '2024-01-01T00:00:00Z',
-      userId: 'afdaad18-1241-47c8-a633-f912fa3f9d03',
-      sessionId: null,
-      crisisLevel: 5,
-      timestamp: '2024-01-01T00:00:00Z',
-    })
-  ).rejects.toThrow('1 crisis notification channel(s) failed');
+    expect(mocks.sendEmail).toHaveBeenCalled();
+  });
 
-  expect(mocks.sendEmail).toHaveBeenCalled();
-});
+  it('attempts all crisis channels even when both email and SMS fail', async () => {
+    process.env.MINDORA_CRISIS_ALERT_EMAILS = 'crisis@example.com';
+    process.env.MINDORA_CRISIS_ALERT_PHONES = '+250700000001';
+    process.env.MINDORA_CRISIS_ALERT_VOICE_PHONES = '+250700000002';
+    process.env.SMS_ENABLED = 'true';
+    process.env.AT_API_KEY = 'test-key';
+    process.env.AT_USERNAME = 'sandbox';
+    process.env.AT_VOICE_ENABLED = 'true';
+    mocks.sendEmail.mockRejectedValueOnce(new Error('Resend unavailable'));
+    mocks.sendSms.mockRejectedValueOnce(new Error('SMS unavailable'));
+    mocks.sendVoiceCall.mockResolvedValueOnce({ accepted: true });
+
+    await expect(
+      capturedHandler(EXCHANGES.AI)({
+        eventId: '0e7552ba-f172-49c0-8111-a10e63bbb720',
+        occurredAt: '2026-11-01T00:00:00Z',
+        userId: '69fce016-7e17-4f42-91a4-45878f42b4f8',
+        sessionId: null,
+        crisisLevel: 5,
+        timestamp: '2026-11-01T00:00:00Z',
+        messageExcerpt: 'I may hurt myself tonight',
+        conversationExcerpt: 'User indicated immediate danger',
+        interactionId: 'cef162d9-cd61-4c1b-a200-bdd8d7450446',
+      })
+    ).rejects.toThrow('One or more crisis notification channels failed');
+
+    expect(mocks.sendEmail).toHaveBeenCalled();
+    expect(mocks.sendSms).toHaveBeenCalled();
+    expect(mocks.sendVoiceCall).toHaveBeenCalled();
+  });
 });

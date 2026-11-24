@@ -10,6 +10,7 @@ import multer from 'multer';
 import swaggerUi from 'swagger-ui-express';
 import { userRouter } from './routes/user.routes.js';
 import { therapistApplicationRouter } from './routes/therapist-application.routes.js';
+import { clinicalWorkspaceRouter } from './routes/clinical-workspace.routes.js';
 import { openApiSpec } from './docs/openapi.js';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
@@ -57,6 +58,7 @@ export function createApp() {
   // shadowed by userRouter's generic GET /internal/users/:id (same ordering
   // issue documented on /internal/users/analytics in user.routes.ts).
   app.use(therapistApplicationRouter);
+  app.use('/api/v1/users', clinicalWorkspaceRouter);
   app.use(userRouter);
 
   // Multer (file upload) errors — bad mimetype from the fileFilter, or a

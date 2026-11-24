@@ -39,6 +39,11 @@ const mockStoreReset = vi.fn();
 const mockGetResetUser = vi.fn();
 const mockDeleteReset = vi.fn();
 const mockPublish = vi.fn();
+const mockPublishToExchange = vi.fn();
+const mockLockRemaining = vi.fn();
+const mockRecordLoginFailure = vi.fn();
+const mockClearLoginFailures = vi.fn();
+const mockClearLoginLock = vi.fn();
 
 vi.mock('../lib/prisma.js', () => ({
   prisma: {
@@ -73,6 +78,7 @@ vi.mock('@mindora/auth-middleware', async (importOriginal) => {
 // a profile — mocked here so tests never attempt a real RabbitMQ connection.
 vi.mock('@mindora/queue', () => ({
   publish: (...args: unknown[]) => mockPublish(...args),
+  publishToExchange: (...args: unknown[]) => mockPublishToExchange(...args),
 }));
 
 vi.mock('../lib/redis.js', () => ({
@@ -82,6 +88,11 @@ vi.mock('../lib/redis.js', () => ({
   deletePasswordResetToken: (...args: unknown[]) => mockDeleteReset(...args),
   isTokenBlacklisted: (...args: unknown[]) => mockIsBlacklisted(...args),
   blacklistToken: (...args: unknown[]) => mockBlacklistToken(...args),
+  getLoginLockRemainingSeconds: (...args: unknown[]) =>
+    mockLockRemaining(...args),
+  recordLoginFailure: (...args: unknown[]) => mockRecordLoginFailure(...args),
+  clearLoginFailures: (...args: unknown[]) => mockClearLoginFailures(...args),
+  clearLoginLock: (...args: unknown[]) => mockClearLoginLock(...args),
 }));
 
 import { createApp } from '../app.js';
@@ -211,6 +222,15 @@ describe('POST /login', () => {
     vi.clearAllMocks();
     mockRefreshCreate.mockResolvedValue({ id: 'refresh-1' });
     mockIsBlacklisted.mockResolvedValue(false);
+    mockLockRemaining.mockResolvedValue(0);
+    mockRecordLoginFailure.mockResolvedValue({
+      locked: false,
+      lockedNow: false,
+      retryAfterSeconds: 0,
+    });
+    mockClearLoginFailures.mockResolvedValue(undefined);
+    mockClearLoginLock.mockResolvedValue(undefined);
+    mockPublishToExchange.mockResolvedValue(undefined);
   });
 
   it('returns an access token for valid credentials', async () => {
@@ -304,6 +324,32 @@ describe('POST /login', () => {
     expect(mockFindUnique).toHaveBeenCalledWith({
       where: { email: 'patient@example.com' },
     });
+  });
+
+  it('locks a user after the fifth invalid attempt and emits a security notification', async () => {
+    const passwordHash = await hashPassword('securePass1');
+    mockFindUnique.mockResolvedValue({
+      id: 'user-123',
+      email: 'patient@example.com',
+      passwordHash,
+      role: 'PATIENT',
+      isActive: true,
+    });
+    mockRecordLoginFailure.mockResolvedValue({
+      locked: true,
+      lockedNow: true,
+      retryAfterSeconds: 900,
+    });
+    const app = createApp();
+    const response = await request(app)
+      .post('/login')
+      .send({ email: 'patient@example.com', password: 'wrong-password' });
+    expect(response.status).toBe(423);
+    expect(mockPublishToExchange).toHaveBeenCalledWith(
+      expect.any(String),
+      'account.locked',
+      expect.objectContaining({ recipientEmail: 'patient@example.com' })
+    );
   });
 
   it('rejects login for a suspended account with 403', async () => {
@@ -423,17 +469,104 @@ describe('POST /refresh', () => {
 });
 
 describe('POST /forgot-password', () => {
-  it('always returns 200', async () => {
-    mockFindUnique.mockResolvedValue({ id: 'user-123', email: 'a@b.com' });
+  beforeEach(() => {
+    vi.clearAllMocks();
     mockStoreReset.mockResolvedValue(undefined);
+    mockPublishToExchange.mockResolvedValue(undefined);
+    mockDeleteReset.mockResolvedValue(undefined);
+  });
+
+  it('creates a hashed, short-lived token and queues the email without claiming delivery', async () => {
+    mockFindUnique.mockResolvedValue({ id: 'user-123', email: 'a@b.com' });
 
     const app = createApp();
     const response = await request(app)
       .post('/forgot-password')
       .send({ email: 'a@b.com' });
 
+    expect(response.status).toBe(202);
+    expect(response.body.message).toContain('does not confirm email delivery');
+    expect(JSON.stringify(response.body)).not.toMatch(/token|a@b\.com/i);
+    expect(mockStoreReset).toHaveBeenCalledOnce();
+    expect(mockPublishToExchange).toHaveBeenCalledWith(
+      expect.any(String),
+      'password.reset',
+      expect.objectContaining({
+        eventType: 'password.reset',
+        recipientEmail: 'a@b.com',
+        expiresInMinutes: 15,
+        resetUrl: expect.stringContaining('/reset-password?token='),
+      })
+    );
+  });
+
+  it('returns the same public response for an unknown address', async () => {
+    mockFindUnique.mockResolvedValue(null);
+
+    const app = createApp();
+    const response = await request(app)
+      .post('/forgot-password')
+      .send({ email: 'unknown@example.com' });
+
+    expect(response.status).toBe(202);
+    expect(response.body.message).toContain('does not confirm email delivery');
+    expect(mockStoreReset).not.toHaveBeenCalled();
+    expect(mockPublishToExchange).not.toHaveBeenCalled();
+  });
+
+  it('invalidates the reset token if RabbitMQ does not accept the reset event', async () => {
+    mockFindUnique.mockResolvedValue({ id: 'user-123', email: 'a@b.com' });
+    mockPublishToExchange.mockRejectedValue(new Error('broker unavailable'));
+
+    const app = createApp();
+    const response = await request(app)
+      .post('/forgot-password')
+      .send({ email: 'a@b.com' });
+
+    expect(response.status).toBe(202);
+    expect(mockDeleteReset).toHaveBeenCalledOnce();
+  });
+});
+
+describe('POST /reset-password', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUserUpdate.mockResolvedValue({});
+    mockFindUnique.mockResolvedValue({ email: 'a@b.com' });
+    mockDeleteReset.mockResolvedValue(undefined);
+    mockClearLoginLock.mockResolvedValue(undefined);
+    mockRefreshUpdateMany.mockResolvedValue({ count: 1 });
+  });
+
+  it('rejects an invalid, expired, or previously consumed token', async () => {
+    mockGetResetUser.mockResolvedValue(null);
+    const app = createApp();
+    const response = await request(app)
+      .post('/reset-password')
+      .send({ token: 'not-valid', newPassword: 'SecurePass123' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe('Invalid or expired reset token');
+    expect(mockUserUpdate).not.toHaveBeenCalled();
+  });
+
+  it('hashes the new password, consumes the token, and revokes existing refresh sessions', async () => {
+    mockGetResetUser.mockResolvedValue('user-123');
+    const app = createApp();
+    const response = await request(app)
+      .post('/reset-password')
+      .send({ token: 'one-time-reset-token', newPassword: 'SecurePass123' });
+
     expect(response.status).toBe(200);
-    expect(mockStoreReset).toHaveBeenCalled();
+    expect(mockUserUpdate).toHaveBeenCalledWith({
+      where: { id: 'user-123' },
+      data: { passwordHash: expect.any(String) },
+    });
+    expect(mockDeleteReset).toHaveBeenCalledOnce();
+    expect(mockRefreshUpdateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-123', revoked: false },
+      data: { revoked: true },
+    });
   });
 });
 

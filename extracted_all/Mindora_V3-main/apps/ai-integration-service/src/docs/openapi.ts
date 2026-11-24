@@ -54,9 +54,9 @@ export const openApiSpec = {
           response: {
             type: 'string',
             example:
-              "I'm concerned about your safety right now. Please reach out to a crisis helpline immediately. In Rwanda: Umutima Counselling Centre +250 788 386 225. International: Crisis Text Line — text HOME to 741741. You are not alone.",
+              "I'm glad you told me. Your safety matters. If you may act on these thoughts or have already hurt yourself, contact local emergency services or go to the nearest emergency department now. For general MINDORA support during published hours (Monday–Friday, 9 AM–5 PM), call +250 783 974-066 or email info@mindora.rw; these are not emergency services.",
           },
-          crisisLevel: { type: 'integer', enum: [5] },
+          crisisLevel: { type: 'integer', enum: [3, 4, 5] },
           sessionId: { type: 'string', nullable: true, enum: [null] },
         },
       },
