@@ -17,10 +17,13 @@ function encryptWithKey(value: string, key: Buffer): string {
   return `${iv.toString('hex')}:${cipher.getAuthTag().toString('hex')}:${encrypted.toString('hex')}`;
 }
 
-
 function decryptWithKey(value: string, key: Buffer): string {
   const [ivHex, authTagHex, dataHex] = value.split(':');
-  const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
+  const decipher = crypto.createDecipheriv(
+    'aes-256-gcm',
+    key,
+    Buffer.from(ivHex, 'hex')
+  );
   decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
   return Buffer.concat([
     decipher.update(Buffer.from(dataHex, 'hex')),
@@ -60,7 +63,9 @@ describe('community encryption key rotation', () => {
     const hexKey = '0123456789abcdef'.repeat(4);
     process.env.COMMUNITY_ENCRYPTION_KEY = hexKey;
     const ciphertext = encryptUserId('patient-hex-key');
-    expect(decryptWithKey(ciphertext, Buffer.from(hexKey, 'hex'))).toBe('patient-hex-key');
+    expect(decryptWithKey(ciphertext, Buffer.from(hexKey, 'hex'))).toBe(
+      'patient-hex-key'
+    );
   });
 
   it('refuses new production writes when the dedicated key is missing', () => {
